@@ -1,4 +1,8 @@
 import type { StudentExperiment } from './types';
+import { ArrowRight, Leaf, Ruler, ThermometerSun } from 'lucide-react';
+import lessonChemistry from '../assets/dashboard/lesson-chemistry.jpg';
+import lessonLight from '../assets/dashboard/lesson-light.jpg';
+import lessonMotion from '../assets/dashboard/lesson-motion.jpg';
 
 interface ExperimentCardProps {
   experiment: StudentExperiment;
@@ -7,6 +11,13 @@ interface ExperimentCardProps {
 }
 
 export function ExperimentCard({ experiment, selected, onSelect }: ExperimentCardProps) {
+  const presentation = experiment.sensorId === 'dht11'
+    ? { image: lessonChemistry, Icon: ThermometerSun, label: '기상·환경' }
+    : experiment.sensorId === 'hc-sr04'
+      ? { image: lessonMotion, Icon: Ruler, label: '힘과 운동' }
+      : { image: lessonLight, Icon: Leaf, label: '빛과 생명' };
+  const { Icon } = presentation;
+
   return (
     <button
       type="button"
@@ -15,14 +26,18 @@ export function ExperimentCard({ experiment, selected, onSelect }: ExperimentCar
       aria-pressed={selected}
       aria-label={`${experiment.title} 선택. ${experiment.question}`}
     >
-      <span className="experiment-icon" aria-hidden="true">{experiment.icon}</span>
+      <span className="experiment-thumb" aria-hidden="true">
+        <img src={presentation.image} alt="" />
+        <span className="experiment-category"><Icon size={12} /> {presentation.label}</span>
+      </span>
       <span className="experiment-copy">
-        <span className="eyebrow">{experiment.sensorName}</span>
         <strong>{experiment.title}</strong>
         <span>{experiment.question}</span>
         {experiment.draft && <span className="source-badge source-demo">공식 코드 검토 중 (draft)</span>}
       </span>
-      <span className="select-label" aria-hidden="true">{selected ? '선택됨' : '선택하기'} →</span>
+      <span className="select-label" aria-hidden="true">
+        {selected ? '선택됨' : '선택하기'} <ArrowRight size={13} />
+      </span>
     </button>
   );
 }

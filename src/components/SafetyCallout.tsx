@@ -1,4 +1,5 @@
 import type { StudentExperiment } from './types';
+import { Zap } from 'lucide-react';
 
 interface SafetyCalloutProps {
   experiment: StudentExperiment;
@@ -8,7 +9,7 @@ export function SafetyCallout({ experiment }: SafetyCalloutProps) {
   return (
     <aside className="safety-callout" aria-labelledby="safety-title">
       <div className="safety-heading">
-        <span aria-hidden="true">⚡</span>
+        <span aria-hidden="true"><Zap size={20} /></span>
         <div>
           <p className="eyebrow">연결 전 20초 안전 확인</p>
           <h3 id="safety-title">USB를 뽑은 상태에서 배선하세요</h3>

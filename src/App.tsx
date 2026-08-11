@@ -3,12 +3,10 @@ import { experimentPacks, sensorPacks } from './domain/packs';
 import { deriveRelativeTransmittance, deriveVelocity } from './domain/calculations';
 import { parseProtocolLine } from './domain/protocol';
 import type { AckMessage, RawMeasurement, SensorPackId } from './domain/protocol';
-import { ConnectionPanel } from './components/ConnectionPanel';
 import { ExperimentCard } from './components/ExperimentCard';
-import { MeasurementPanel } from './components/MeasurementPanel';
+import { DashboardMeasurement } from './components/DashboardMeasurement';
 import { RecordActions } from './components/RecordActions';
 import { SafetyCallout } from './components/SafetyCallout';
-import { StepIndicator } from './components/StepIndicator';
 import type {
   ConnectionState,
   MeasurementSample,
@@ -17,6 +15,38 @@ import type {
 import { WiringGuide } from './components/WiringGuide';
 import { createSessionApi, measurementsToCsv } from './services/sessionApi';
 import type { MeasurementDraft } from './services/sessionApi';
+import {
+  Activity,
+  BarChart3,
+  Bell,
+  Bluetooth,
+  BookOpen,
+  Boxes,
+  Cable,
+  ChevronDown,
+  ChevronRight,
+  CircleHelp,
+  ClipboardList,
+  Cpu,
+  Database,
+  FilePlus2,
+  FlaskConical,
+  GraduationCap,
+  Home,
+  PlayCircle,
+  RefreshCw,
+  Ruler,
+  ShieldCheck,
+  Sun,
+  Thermometer,
+  Users,
+  Waves,
+} from 'lucide-react';
+import brandMark from './assets/dashboard/brand-mark.jpg';
+import heroScientist from './assets/dashboard/hero-scientist.jpg';
+import solarSimulation from './assets/dashboard/solar-simulation.jpg';
+import teacherAvatar from './assets/dashboard/teacher-avatar.jpg';
+import unoBoard from './assets/dashboard/uno-board.jpg';
 
 interface SerialReaderLike {
   read: () => Promise<{ value?: Uint8Array; done: boolean }>;
@@ -42,9 +72,9 @@ interface SerialNavigatorLike {
 }
 
 const PACK_PRESENTATION: Record<SensorPackId, Pick<StudentExperiment, 'accent' | 'icon'>> = {
-  dht11: { accent: 'mint', icon: '🌡️' },
-  'hc-sr04': { accent: 'blue', icon: '📏' },
-  ldr: { accent: 'amber', icon: '☀️' },
+  dht11: { accent: 'mint', icon: '' },
+  'hc-sr04': { accent: 'blue', icon: '' },
+  ldr: { accent: 'amber', icon: '' },
 };
 
 function toStudentExperiment(pack: (typeof experimentPacks)[number]): StudentExperiment {
@@ -76,6 +106,16 @@ const decoder = new TextDecoder();
 const ACK_TIMEOUT_MS = 2600;
 const FRESH_VALUE_MS = 3000;
 const MAX_LINE_BUFFER = 4096;
+
+const connectionLabels: Record<ConnectionState, string> = {
+  idle: '센서 연결 전',
+  requesting: '기기 선택 중',
+  checking: 'UNO 응답 확인 중',
+  ready: '센서 준비 완료',
+  measuring: '측정 중',
+  error: '연결 확인 필요',
+  unsupported: '브라우저 확인 필요',
+};
 
 function matchesAck(message: AckMessage, command: 'PING' | 'MODE' | 'STOP', mode?: SensorPackId) {
   return message.command === command && (command === 'PING' || message.mode === mode);
@@ -606,84 +646,192 @@ export default function App() {
   }, [connected, disconnect, selected.id]);
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" id="top">
       <header className="topbar">
-        <a className="brand" href="#top" aria-label="센서 탐구 워크벤치 처음으로">
-          <span className="brand-mark" aria-hidden="true">S</span>
-          <span><strong>센서 탐구</strong><small>Arduino UNO 워크벤치</small></span>
+        <a className="brand" href="#top" aria-label="Science Modular Workbench 처음으로">
+          <img src={brandMark} alt="" />
+          <span><strong>Science Modular Workbench</strong><small>웹앱 기반 통합 모듈형 과학탐구 워크벤치</small></span>
         </a>
-        <span className="privacy-note"><span aria-hidden="true">●</span> 이름·학번을 수집하지 않아요</span>
+
+        <div className="topbar-center">
+          <button type="button" className="class-selector" aria-label="현재 학급">
+            <BookOpen size={17} aria-hidden="true" /> 3학년 2반 과학 <ChevronDown size={15} aria-hidden="true" />
+          </button>
+          <button type="button" className={`device-pill state-${connectionState}`} onClick={connected ? undefined : () => void connect()}>
+            <Cpu size={18} aria-hidden="true" />
+            <span><small>연결된 장치</small><strong>{connected ? 'Arduino UNO' : '장치 없음'}</strong></span>
+            <span className="device-dot" aria-hidden="true" />
+            <Bluetooth size={18} aria-hidden="true" />
+          </button>
+        </div>
+
+        <div className="topbar-actions">
+          <button type="button" className="icon-button" aria-label="알림"><Bell size={20} /></button>
+          <button type="button" className="icon-button" aria-label="도움말"><CircleHelp size={20} /></button>
+          <img className="teacher-avatar" src={teacherAvatar} alt="교사 프로필" />
+          <span className="teacher-name"><strong>김선생</strong><small>교사 · 관리자</small></span>
+          <ChevronDown size={16} aria-hidden="true" />
+        </div>
       </header>
 
-      <main id="main-content">
-        <section className="hero" id="top">
-          <div className="hero-copy">
-            <p className="eyebrow">코딩 없이 시작하는 과학 탐구</p>
-            <h1>무엇을 탐구할까요?</h1>
-            <p>궁금한 질문 하나를 고르면 배선부터 측정까지 차근차근 안내할게요.</p>
+      <div className="dashboard-workspace">
+        <aside className="sidebar" aria-label="주요 메뉴">
+          <nav>
+            <a className="is-active" href="#top" aria-label="홈"><Home size={20} /> <span>홈</span></a>
+            <a href="#experiments" aria-label="실험팩"><FlaskConical size={20} /> <span>실험팩</span></a>
+            <a href="#setup" aria-label="센서팩"><Cpu size={20} /> <span>센서팩</span></a>
+            <a href="#workflow" aria-label="수업카드"><ClipboardList size={20} /> <span>수업카드</span></a>
+            <a href="#measurement" aria-label="실시간 측정"><Activity size={20} /> <span>실시간 측정</span></a>
+            <a href="#simulation" aria-label="시뮬레이션"><PlayCircle size={20} /> <span>시뮬레이션</span></a>
+            <a href="#records" aria-label="결과분석"><BarChart3 size={20} /> <span>결과분석</span></a>
+            <a href="#readiness" aria-label="교사모드"><GraduationCap size={20} /> <span>교사모드</span></a>
+          </nav>
+          <div className="quick-actions">
+            <strong><Boxes size={14} /> 빠른 실행</strong>
+            <a href="#experiments"><FilePlus2 size={15} /> 새 실험 선택</a>
+            <a href="#measurement"><PlayCircle size={15} /> 수업 시작하기</a>
           </div>
-          <StepIndicator current={currentStep} />
-        </section>
+        </aside>
 
-        <section className="experiment-section" aria-labelledby="experiment-heading">
-          <h2 id="experiment-heading" className="visually-hidden">탐구 선택</h2>
-          <div className="experiment-grid">
-            {packs.map((pack) => (
-              <ExperimentCard key={pack.id} experiment={pack} selected={pack.id === selected.id} onSelect={chooseExperiment} />
-            ))}
+        <main id="main-content" className="dashboard-main">
+          <div className="dashboard-grid">
+            <section className="hero-panel dashboard-panel" style={{ backgroundImage: `url(${heroScientist})` }}>
+              <div className="hero-copy">
+                <span className="panel-kicker">SCIENCE WORKBENCH</span>
+                <h1>오늘의 과학탐구</h1>
+                <p>탐구하고, 측정하고, 이해하며<br />세상을 더 깊이 탐구해요!</p>
+              </div>
+              <div className="mode-cards" aria-label="사용 모드">
+                <button type="button" className="mode-card is-active"><Users size={25} /><span><strong>학생 모드</strong><small>탐구 활동 및 실험 수행</small></span><ChevronRight size={16} /></button>
+                <button type="button" className="mode-card" disabled title="교사 모드는 다음 단계에서 제공됩니다"><GraduationCap size={25} /><span><strong>교사 모드</strong><small>수업 관리 · 준비 중</small></span></button>
+                <button type="button" className="mode-card" disabled title="제작자 모드는 다음 단계에서 제공됩니다"><Boxes size={25} /><span><strong>제작자 모드</strong><small>실험팩 제작 · 준비 중</small></span></button>
+              </div>
+            </section>
+
+            <section className="sensor-panel dashboard-panel" id="setup" aria-labelledby="sensor-panel-title">
+              <div className="panel-heading">
+                <div><span className="panel-kicker">DEVICE</span><h2 id="sensor-panel-title">센서 연결 상태</h2></div>
+                <RefreshCw size={16} aria-hidden="true" />
+              </div>
+              <div className="device-overview">
+                <div>
+                  <span className={`connection-chip state-${connectionState}`} role="status" aria-live="polite">{connectionLabels[connectionState]}</span>
+                  <strong>{connected ? 'Arduino UNO' : '연결된 장치 없음'}</strong>
+                  <small>선택 센서 · {selected.sensorName}</small>
+                </div>
+                <img src={unoBoard} alt="UNO 호환 센서 보드" />
+              </div>
+              <div className="sensor-pack-row" aria-label="지원 센서팩">
+                <span><Thermometer size={17} /> DHT11</span>
+                <span><Ruler size={17} /> HC-SR04</span>
+                <span><Sun size={17} /> LDR</span>
+              </div>
+              <p className={`connection-message ${connectionState === 'error' || connectionState === 'unsupported' ? 'is-error' : ''}`}>{connectionMessage}</p>
+              {connected ? (
+                <button className="button button-secondary connect-button" type="button" onClick={() => void disconnect()}><Cable size={15} /> 연결 해제</button>
+              ) : (
+                <button className="button button-primary connect-button" type="button" onClick={() => void connect()} disabled={connectionState === 'requesting' || connectionState === 'checking'}>
+                  <Bluetooth size={15} /> {connectionState === 'requesting' || connectionState === 'checking' ? 'UNO 응답을 확인하고 있어요' : `${selected.sensorName} 연결하기`}
+                </button>
+              )}
+              <details className="sensor-details-popover">
+                <summary>배선·안전 상세 보기</summary>
+                <div className="sensor-details-content">
+                  <WiringGuide experiment={selected} />
+                  <SafetyCallout experiment={selected} />
+                </div>
+              </details>
+            </section>
+
+            <DashboardMeasurement
+              experiment={selected}
+              connected={connected}
+              measuring={connectionState === 'measuring'}
+              samples={visibleSamples}
+              history={history}
+              onStart={() => void startMeasurement()}
+              onStop={stopMeasurement}
+              onDemo={showDemo}
+              freshnessMessage={freshnessMessage}
+            />
+
+            <section className="workflow-panel dashboard-panel" id="workflow" aria-labelledby="workflow-title">
+              <div className="panel-heading"><h2 id="workflow-title">실험 워크플로우</h2></div>
+              <ol>
+                {[
+                  ['예상하기', '가설을 세우고 예상 결과 작성', BookOpen],
+                  ['실험하기', '센서 연결 후 데이터 수집', FlaskConical],
+                  ['데이터 분석', '그래프 및 표로 해석', BarChart3],
+                  ['오차 분석', '오차 원인 검토', RefreshCw],
+                  ['결과 제출', '결과 저장 및 CSV', Database],
+                ].map(([title, detail, Icon], index) => {
+                  const WorkflowIcon = Icon as typeof BookOpen;
+                  const step = index + 1;
+                  return (
+                    <li key={title as string} className={step <= currentStep ? 'is-current' : ''}>
+                      <span><WorkflowIcon size={20} /></span>
+                      <strong>{step} {title as string}</strong>
+                      <small>{detail as string}</small>
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
+
+            <section className="simulation-panel dashboard-panel" id="simulation" aria-labelledby="simulation-title">
+              <div className="panel-heading"><h2 id="simulation-title"><PlayCircle size={17} /> 시뮬레이션 / 디지털 트윈</h2><span className="coming-soon">콘텐츠 준비 중</span></div>
+              <div className="simulation-visual">
+                <img src={solarSimulation} alt="태양·지구·달의 궤도 시각 자료" />
+                <span>현재는 시각 자료 미리보기만 제공됩니다.</span>
+              </div>
+            </section>
+
+            <section className="experiment-panel dashboard-panel" id="experiments" aria-labelledby="experiment-heading">
+              <div className="panel-heading"><h2 id="experiment-heading">수업카드 추천</h2><a href="#experiments">전체 보기 <ChevronRight size={14} /></a></div>
+              <div className="experiment-grid">
+                {packs.map((pack) => (
+                  <ExperimentCard key={pack.id} experiment={pack} selected={pack.id === selected.id} onSelect={chooseExperiment} />
+                ))}
+              </div>
+            </section>
+
+            <div className="record-panel" id="records">
+              <RecordActions
+                canSave={createMeasurementDraft(selected, visibleSamples) !== null}
+                hasSavedRecords={hasSavedRecords}
+                busy={recordBusy}
+                status={recordStatus}
+                onSave={() => void saveCurrentResult()}
+                onDownload={() => void downloadCsv()}
+              />
+            </div>
+
+            <section className="readiness-panel dashboard-panel" id="readiness" aria-labelledby="readiness-title">
+              <div className="panel-heading"><h2 id="readiness-title">실험 준비 상태</h2><ShieldCheck size={17} /></div>
+              <ul>
+                <li><span className={selected ? 'is-ready' : ''}><FlaskConical size={15} /></span><div><strong>탐구팩 선택</strong><small>{selected.title}</small></div></li>
+                <li><span className={connected ? 'is-ready' : ''}><Cpu size={15} /></span><div><strong>센서 연결</strong><small>현재 상태 · {connectionLabels[connectionState]}</small></div></li>
+                <li><span className={visibleSamples.length ? 'is-ready' : ''}><Waves size={15} /></span><div><strong>측정 데이터</strong><small>{visibleSamples.length ? `${visibleSamples.length}개 최신값` : '아직 측정 전'}</small></div></li>
+              </ul>
+              <details className="advanced-panel">
+                <summary>Advanced 진단 정보</summary>
+                <dl>
+                  <div><dt>최근 상태</dt><dd>{diagnostic}</dd></div>
+                  <div><dt>최근 raw</dt><dd><code>{rawLine}</code></dd></div>
+                </dl>
+              </details>
+            </section>
           </div>
-        </section>
+        </main>
+      </div>
 
-        <section className="setup-layout" id="setup">
-          <div className="setup-main">
-            <WiringGuide experiment={selected} />
-            <SafetyCallout experiment={selected} />
-          </div>
-          <ConnectionPanel
-            experiment={selected}
-            state={connectionState}
-            message={connectionMessage}
-            onConnect={() => void connect()}
-            onDisconnect={() => void disconnect()}
-          />
-        </section>
-
-        <MeasurementPanel
-          experiment={selected}
-          connected={connected}
-          measuring={connectionState === 'measuring'}
-          samples={visibleSamples}
-          history={history}
-          onStart={() => void startMeasurement()}
-          onStop={stopMeasurement}
-          onDemo={showDemo}
-          freshnessMessage={freshnessMessage}
-        />
-
-        <RecordActions
-          canSave={createMeasurementDraft(selected, visibleSamples) !== null}
-          hasSavedRecords={hasSavedRecords}
-          busy={recordBusy}
-          status={recordStatus}
-          onSave={() => void saveCurrentResult()}
-          onDownload={() => void downloadCsv()}
-        />
-
-        <details className="advanced-panel">
-          <summary>Advanced 진단 정보</summary>
-          <p>문제가 계속될 때 선생님과 함께 확인하세요. 기본 탐구에는 필요하지 않습니다.</p>
-          <dl>
-            <div><dt>전송 속도</dt><dd>115200 baud</dd></div>
-            <div><dt>프로토콜</dt><dd>줄바꿈 JSON / ACK</dd></div>
-            <div><dt>입력 범위</dt><dd>UNO ADC 0–1023 (LDR 원시값)</dd></div>
-            <div><dt>최근 상태</dt><dd>{diagnostic}</dd></div>
-            <div><dt>최근 raw</dt><dd><code>{rawLine}</code></dd></div>
-          </dl>
-        </details>
-      </main>
-
-      <footer>
-        <p>실제 UNO 3종 하드웨어 수업 검증 전 단계의 워크벤치입니다. 데모 결과를 실측으로 사용하지 마세요.</p>
+      <footer className="bottom-status">
+        <span><BookOpen size={16} /> 플랫폼 안내</span>
+        <span><FlaskConical size={16} /> 실험팩 <strong>3</strong></span>
+        <span><Cpu size={16} /> 센서팩 <strong>3</strong></span>
+        <span><Database size={16} /> 저장 기록 <strong>{hasSavedRecords ? '있음' : '0'}</strong></span>
+        <span className="system-status"><i /> 시스템 상태 <strong>로컬 준비</strong></span>
+        <small>V0.2.0 · 실제 하드웨어 수업 검증 전</small>
       </footer>
     </div>
   );
