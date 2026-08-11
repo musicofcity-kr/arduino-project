@@ -4,6 +4,8 @@ coverage/
 runtime-data/
 playwright-report/
 test-results/
+.arduino-cli/
+.arduino-build/
 .env*
 !.env.example
 *.log

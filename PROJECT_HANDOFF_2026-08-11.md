@@ -1,7 +1,7 @@
 ---
 document: PROJECT_HANDOFF
 project: Web App-based Integrated Modular Science Inquiry Workbench
-recorded_at: 2026-08-11T11:48:36+09:00
+recorded_at: 2026-08-11T13:55:45+09:00
 workspace: C:\all\Aduino project
 state: USER CHECK
 status: ESCALATE
@@ -30,7 +30,7 @@ evidence_level: V2
 | 패키지 검사 | C01~C26 전부 PASS, BLOCKER 0 / WARN 0 |
 | 독립 검토 | blocker/major 0건, BUILD PASS |
 | 실제 장비 검증 | 미실시 |
-| Git 증거 | `evidence_committed: true`, `main`이 `origin/main`을 추적 |
+| Git 증거 | 최신 V3-01 증거를 GitHub `main`에 병합 |
 
 `ESCALATE`는 빌드 실패가 아니라 실제 사람·장비 V3 확인을 기다린다는 뜻이다. 정식 상태 원본은 `STATE.md`, 요구사항 원본은 `PROJECT_SPEC.md`, 노드별 증거는 `docs/BUILD_RESULT.md`, `docs/VERIFY_RESULT.md`, `docs/EVALUATE_RESULT.md`를 따른다.
 
@@ -61,7 +61,7 @@ evidence_level: V2
 | Pack | raw 값 | derived 값 | 주의 |
 |---|---|---|---|
 | DHT11 | temperature `C`, humidity `%` | 없음 | 저장 시 UI 단위는 `°C`, `%RH`로 정규화 |
-| HC-SR04 | distance `cm` | velocity `cm/s` | 계산식과 두 시점의 거리 입력을 함께 보존 |
+| HC-SR04 | distance `cm` | velocity `m/s` | 계산식과 두 시점의 거리 입력을 함께 보존 |
 | LDR | relativeLight `count` | relativeTransmittance `%` | `count`는 0~1023 ADC 상대 신호이며 lux가 아님 |
 
 - raw 저장값은 `value`, `unit`, `source`, 장치 `timestampMs`를 보존한다.
@@ -121,6 +121,7 @@ python tools/check_package.py
 - 합계: 39/39 PASS
 - TypeScript 및 Vite production build: PASS, 28 modules
 - 패키지 검사: PASS, BLOCKER 0 / WARN 0
+- Arduino UNO compile: PASS, flash 7,556 bytes (23%), SRAM 668 bytes (32%)
 - 저장 통합 테스트는 실제 임시 JsonDataStore를 띄워 session 생성 → POST → GET → CSV 변환까지 확인한다.
 
 ### 브라우저 검증
@@ -134,7 +135,7 @@ python tools/check_package.py
 
 ### 검증하지 못한 항목
 
-- Arduino CLI/IDE를 이용한 실제 펌웨어 컴파일과 업로드
+- 실제 UNO에 펌웨어 업로드
 - 실제 UNO와 DHT11, HC-SR04, LDR 측정
 - USB 포트 선택 대화상자를 포함한 Web Serial end-to-end
 - 정확한 390px 실제 기기 화면
@@ -150,7 +151,8 @@ python tools/check_package.py
 - npm `11.12.1`
 - `node_modules`: 존재
 - `dist`: 존재
-- Arduino CLI: 설치되어 있지 않음
+- Arduino CLI `1.5.1`: `C:\Program Files\Arduino CLI\arduino-cli.exe`
+- Arduino AVR core `1.8.8`, DHT sensor library `1.4.7`, Adafruit Unified Sensor `1.1.15`
 - Git 저장소: `main`, 원격 `https://github.com/musicofcity-kr/arduino-project.git`
 
 웹앱과 API를 함께 실행한다.
@@ -180,9 +182,10 @@ node server/index.mjs
 
 - [ ] 새 기능을 추가하기 전에 실제 UNO·센서 V3 증거 확보를 최우선으로 한다.
 - [ ] 이 문서와 `STATE.md`를 먼저 읽는다.
-- [ ] Arduino IDE 또는 Arduino CLI를 준비한다.
-- [ ] Adafruit `DHT sensor library`와 `Adafruit Unified Sensor`를 설치한다.
-- [ ] UNO 보드 대상으로 통합 펌웨어를 컴파일하고 업로드한다.
+- [x] Arduino CLI를 준비한다.
+- [x] Adafruit `DHT sensor library`와 `Adafruit Unified Sensor`를 설치한다.
+- [x] UNO 보드 대상으로 통합 펌웨어를 컴파일한다.
+- [ ] 실제 UNO에 통합 펌웨어를 업로드한다.
 - [ ] Serial Monitor를 닫아 COM 포트를 해제한다.
 - [ ] Chrome에서 앱을 열고 DHT11을 연결해 연속 온도·습도를 확인한다.
 - [ ] HC-SR04로 거리 변화와 속도 계산을 확인한다.
@@ -197,7 +200,7 @@ node server/index.mjs
 
 | ID | 확인 항목 | 합격 기준 | 현재 |
 |---|---|---|---|
-| V3-01 | 펌웨어 컴파일 | UNO 대상 오류 없이 컴파일 | 미확인 |
+| V3-01 | 펌웨어 컴파일 | UNO 대상 오류 없이 컴파일 | PASS (2026-08-11) |
 | V3-02 | 펌웨어 업로드 | 실제 UNO 업로드 및 PING ACK | 미확인 |
 | V3-03 | DHT11 | 새 온도·습도 값, 단위, timeout 복구 | 미확인 |
 | V3-04 | HC-SR04 | 거리와 속도 계산, sensor timeout 처리 | 미확인 |
@@ -255,4 +258,5 @@ node server/index.mjs
 |---|---|---|---|---|
 | 2026-08-11 | 웹앱·API·펌웨어 구현, P0 보수, V2 검증 | PASS | `docs/*_RESULT.md`, 39/39 tests | 실제 장비 V3 |
 | 2026-08-11 | Git 저장소 초기화 및 비공개 GitHub 게시 | PASS | initial commit `d20b0f9`, `origin/main` | 실제 장비 V3 |
+| 2026-08-11 | Arduino CLI·AVR core·DHT 의존성 설치 및 UNO compile | PASS | `docs/HARDWARE_VERIFICATION_LOG.md` | V3-02~08 |
 |  |  |  |  |  |

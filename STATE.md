@@ -11,7 +11,7 @@ repair_target: none
 fallback_target: none
 terminal_node: COMPLETE
 terminal_reached: false
-updated_at: 2026-08-11T11:48:36+09:00
+updated_at: 2026-08-11T13:55:45+09:00
 evidence_level: V2
 evidence_committed: true
 evidence_unit: 39/39
@@ -26,7 +26,7 @@ fallback_reason: none
 
 ## 현재 판정 요약
 
-React/Vite 기반 학생용 Easy Mode, Web Serial 센서 통신, 실험별 계산·출처 추적, 비식별 로컬 저장 API, CSV 내보내기, Arduino UNO 통합 펌웨어의 BUILD·VERIFY·EVALUATE 자동 검증을 통과했다. 단위·서버·펌웨어 계약 테스트는 39/39, production build는 28 modules, 실제 브라우저 흐름과 로컬 API 스모크 검증은 통과했다. 현재 산출물은 `verified-build`이며 실제 수업 환경의 사용자 확인을 기다린다.
+React/Vite 기반 학생용 Easy Mode, Web Serial 센서 통신, 실험별 계산·출처 추적, 비식별 로컬 저장 API, CSV 내보내기, Arduino UNO 통합 펌웨어의 BUILD·VERIFY·EVALUATE 자동 검증을 통과했다. 단위·서버·펌웨어 계약 테스트는 39/39, production build는 28 modules, 실제 브라우저 흐름과 로컬 API 스모크 검증은 통과했다. Arduino CLI 1.5.1과 AVR core 1.8.8로 UNO 대상 펌웨어 컴파일도 통과했다. 현재 산출물은 `verified-build`이며 실제 보드 업로드·센서 측정·수업 환경의 사용자 확인을 기다린다.
 
 ## 사용자 확인이 필요한 범위
 
