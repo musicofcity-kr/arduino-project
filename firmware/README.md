@@ -21,4 +21,21 @@ JSON은 웹앱의 `src/domain/protocol.ts` 계약을 따른다.
 
 LDR의 `relativeLight(count)`는 0~1023 ADC 원시 계수이며 보정된 lux가 아니다. 기본 전압 분배기만으로 미연결 LDR과 극단적인 실제 입력을 확실히 구분할 수 없으므로 LDR 모드 ACK는 ADC 변환 성공만 확인하며 실제 배선 확인을 대체하지 않는다. 속도와 투과율 같은 계산형 값은 브라우저가 원시 측정과 분리해 생성한다.
 
-현재 Arduino CLI와 실제 UNO/센서가 없는 환경이므로 컴파일·업로드·실측은 미검증(V1)이다.
+현재 실제 UNO/센서가 없는 환경이므로 업로드·실측은 미검증이다.
+
+## 확인된 컴파일 환경
+
+2026-08-11에 Arduino CLI 1.5.1, `arduino:avr` 1.8.8, DHT sensor library 1.4.7, Adafruit Unified Sensor 1.1.15로 UNO 대상 컴파일을 확인했다.
+
+```powershell
+& 'C:\Program Files\Arduino CLI\arduino-cli.exe' `
+  --config-dir 'C:\all\Aduino project\.arduino-cli' `
+  compile --fqbn arduino:avr:uno `
+  --build-path 'C:\all\Aduino project\.arduino-build' `
+  'C:\all\Aduino project\firmware\UniversalSensorFirmware'
+```
+
+- 프로그램 저장 공간: 7,556 bytes / 32,256 bytes (23%)
+- 동적 메모리: 668 bytes / 2,048 bytes (32%)
+
+컴파일은 확인됐지만 실제 UNO 업로드와 센서 실측은 아직 미검증이다. Phase 1 LDR 검증은 UI·스케치와 같은 `5V → LDR → A0 → 10 kΩ → GND` 분압 회로를 사용한다.

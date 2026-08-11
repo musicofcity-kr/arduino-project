@@ -181,6 +181,8 @@ describe("pack metadata", () => {
     expect(motion?.measurements.find((item) => item.key === "velocity")?.label).toContain("부호 있는 속도 추정값");
 
     const light = experimentPacks.find((pack) => pack.sensorId === "ldr");
+    expect(light?.sensorName).toContain("10 kΩ 전압 분배기");
+    expect(light?.wiring.map((step) => step.unoPin)).toEqual(["5V", "A0", "GND"]);
     expect(light?.description).toContain("절대 조도(lux)가 아닙니다");
     expect(light?.measurements.find((item) => item.key === "relativeLight")?.label).toContain("원시 상대광 신호");
     expect(light?.measurements.find((item) => item.key === "relativeTransmittance")?.label).toContain("기준값 대비 상대 투과율");

@@ -87,12 +87,12 @@ export const sensorPacks: readonly SensorPack[] = [
   {
     id: "ldr",
     name: "상대광·투과 센서팩",
-    sensorName: "LDR module",
+    sensorName: "LDR + 10 kΩ 전압 분배기",
     modeCommand: "MODE:LDR",
     wiring: [
-      { pin: "VCC", unoPin: "5V", detail: "모든 배선을 확인한 뒤 전원을 연결하세요." },
-      { pin: "GND", unoPin: "GND", detail: "UNO와 센서의 접지를 함께 연결하세요." },
-      { pin: "AO", unoPin: "A0", detail: "LDR 모듈의 아날로그 출력 핀을 연결하세요." },
+      { pin: "LDR 한쪽", unoPin: "5V", detail: "모든 배선을 확인한 뒤 전원을 연결하세요." },
+      { pin: "LDR·저항 접점", unoPin: "A0", detail: "LDR와 10 kΩ 저항이 만나는 지점을 연결하세요." },
+      { pin: "10 kΩ 저항 반대쪽", unoPin: "GND", detail: "저항의 반대쪽을 GND에 연결하세요." },
     ],
     measurements: [
       { key: "relativeLight", label: "원시 상대광 신호(절대 조도 아님)", unit: "count", kind: "raw" },
@@ -148,7 +148,7 @@ export const experimentPacks: readonly ExperimentPack[] = [
     id: "light-transmittance",
     name: "상대광과 투과 탐구",
     sensorId: "ldr",
-    sensorName: "LDR module",
+    sensorName: "LDR + 10 kΩ 전압 분배기",
     question: "물질을 통과한 빛의 상대 신호는 기준값과 비교해 어떻게 달라질까요?",
     description: "양수인 기준 신호와 시료의 원시 상대광 신호를 비교해 상대 투과율을 계산합니다. 이 값은 절대 조도(lux)가 아닙니다.",
     wiring: sensorPack("ldr").wiring,
