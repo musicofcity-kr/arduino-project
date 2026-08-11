@@ -1,0 +1,690 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { experimentPacks, sensorPacks } from './domain/packs';
+import { deriveRelativeTransmittance, deriveVelocity } from './domain/calculations';
+import { parseProtocolLine } from './domain/protocol';
+import type { AckMessage, RawMeasurement, SensorPackId } from './domain/protocol';
+import { ConnectionPanel } from './components/ConnectionPanel';
+import { ExperimentCard } from './components/ExperimentCard';
+import { MeasurementPanel } from './components/MeasurementPanel';
+import { RecordActions } from './components/RecordActions';
+import { SafetyCallout } from './components/SafetyCallout';
+import { StepIndicator } from './components/StepIndicator';
+import type {
+  ConnectionState,
+  MeasurementSample,
+  StudentExperiment,
+} from './components/types';
+import { WiringGuide } from './components/WiringGuide';
+import { createSessionApi, measurementsToCsv } from './services/sessionApi';
+import type { MeasurementDraft } from './services/sessionApi';
+
+interface SerialReaderLike {
+  read: () => Promise<{ value?: Uint8Array; done: boolean }>;
+  cancel: () => Promise<void>;
+  releaseLock: () => void;
+}
+
+interface SerialWriterLike {
+  write: (data: Uint8Array) => Promise<void>;
+  releaseLock: () => void;
+}
+
+interface SerialPortLike {
+  readable: { getReader: () => SerialReaderLike } | null;
+  writable: { getWriter: () => SerialWriterLike } | null;
+  open: (options: { baudRate: number }) => Promise<void>;
+  close: () => Promise<void>;
+  getInfo?: () => { usbVendorId?: number; usbProductId?: number };
+}
+
+interface SerialNavigatorLike {
+  requestPort: () => Promise<SerialPortLike>;
+}
+
+const PACK_PRESENTATION: Record<SensorPackId, Pick<StudentExperiment, 'accent' | 'icon'>> = {
+  dht11: { accent: 'mint', icon: '🌡️' },
+  'hc-sr04': { accent: 'blue', icon: '📏' },
+  ldr: { accent: 'amber', icon: '☀️' },
+};
+
+function toStudentExperiment(pack: (typeof experimentPacks)[number]): StudentExperiment {
+  const sensor = sensorPacks.find((candidate) => candidate.id === pack.sensorId);
+  if (!sensor) throw new Error(`Sensor pack not found: ${pack.sensorId}`);
+  return {
+    id: pack.id,
+    title: pack.name,
+    sensorId: pack.sensorId,
+    sensorName: pack.sensorName,
+    question: pack.question,
+    description: pack.description,
+    modeCommand: sensor.modeCommand,
+    ...PACK_PRESENTATION[pack.sensorId],
+    wiring: pack.wiring.map(({ pin, unoPin, detail }) => ({ sensorPin: pin, unoPin, note: detail })),
+    measurements: pack.measurements.map(({ key, label, unit, kind }) => ({
+      key,
+      label,
+      unit: key === 'temperature' ? '°C' : unit,
+      kind,
+    })),
+    safety: [...pack.safety],
+    draft: pack.curriculum.status === 'draft',
+  };
+}
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+const ACK_TIMEOUT_MS = 2600;
+const FRESH_VALUE_MS = 3000;
+const MAX_LINE_BUFFER = 4096;
+
+function matchesAck(message: AckMessage, command: 'PING' | 'MODE' | 'STOP', mode?: SensorPackId) {
+  return message.command === command && (command === 'PING' || message.mode === mode);
+}
+
+export function createMeasurementDraft(
+  experiment: Pick<StudentExperiment, 'id' | 'sensorId' | 'measurements'>,
+  samples: readonly MeasurementSample[],
+): MeasurementDraft | null {
+  const actual = samples.filter((sample) => sample.source === 'real' || sample.source === 'derived');
+  const rawKeys = new Set(actual.filter((sample) => sample.source === 'real').map((sample) => sample.key));
+  const requiredRawKeys = experiment.measurements.filter((measurement) => measurement.kind === 'raw').map((measurement) => measurement.key);
+  if (!actual.length || requiredRawKeys.some((key) => !rawKeys.has(key))) return null;
+  const realSamples = actual.filter((sample) => sample.source === 'real');
+  const derivedSamples = actual.filter((sample) => sample.source === 'derived');
+  if (realSamples.some((sample) => (
+    sample.rawSource !== experiment.sensorId ||
+    !Number.isInteger(sample.rawTimestampMs) ||
+    (sample.rawTimestampMs ?? -1) < 0
+  ))) return null;
+  if (derivedSamples.some((sample) => (
+    !sample.calculation ||
+    !Number.isInteger(sample.calculation.timestampMs) ||
+    sample.calculation.timestampMs < 0 ||
+    !sample.calculation.formula ||
+    !Array.isArray(sample.calculation.inputs) ||
+    sample.calculation.inputs.length === 0
+  ))) return null;
+  const raw: Record<string, { value: number; unit: string; source: SensorPackId; timestampMs: number }> = {};
+  const derived: Record<string, {
+    value: number;
+    unit: string;
+    timestampMs: number;
+    formula: NonNullable<MeasurementSample['calculation']>['formula'];
+    inputs: NonNullable<MeasurementSample['calculation']>['inputs'];
+  }> = {};
+  for (const sample of actual) {
+    if (sample.source === 'real') {
+      raw[sample.key] = {
+        value: sample.value,
+        unit: sample.unit,
+        source: sample.rawSource!,
+        timestampMs: sample.rawTimestampMs!,
+      };
+    }
+    if (sample.source === 'derived') {
+      derived[sample.key] = {
+        value: sample.value,
+        unit: sample.unit,
+        timestampMs: sample.calculation!.timestampMs,
+        formula: sample.calculation!.formula,
+        inputs: sample.calculation!.inputs,
+      };
+    }
+  }
+  return {
+    experimentPackId: experiment.id,
+    source: { kind: 'measured', sensorPackId: experiment.sensorId, transport: 'web-serial' },
+    raw,
+    derived,
+    timestamp: new Date(Math.max(...actual.map((sample) => sample.receivedAt))).toISOString(),
+  };
+}
+
+export default function App() {
+  const packs = useMemo(() => {
+    return experimentPacks.slice(0, 3).map(toStudentExperiment);
+  }, []);
+  const [selectedId, setSelectedId] = useState(packs[0].id);
+  const selected = packs.find((pack) => pack.id === selectedId) ?? packs[0];
+  const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
+  const [connectionMessage, setConnectionMessage] = useState('배선을 확인한 뒤 연결 버튼을 눌러 주세요.');
+  const [samples, setSamples] = useState<MeasurementSample[]>([]);
+  const [history, setHistory] = useState<MeasurementSample[]>([]);
+  const [freshnessTick, setFreshnessTick] = useState(Date.now());
+  const [freshnessMessage, setFreshnessMessage] = useState('');
+  const [rawLine, setRawLine] = useState('아직 수신한 메시지가 없습니다.');
+  const [diagnostic, setDiagnostic] = useState('대기');
+  const [recordStatus, setRecordStatus] = useState('');
+  const [recordBusy, setRecordBusy] = useState(false);
+  const [hasSavedRecords, setHasSavedRecords] = useState(false);
+
+  const portRef = useRef<SerialPortLike | null>(null);
+  const readerRef = useRef<SerialReaderLike | null>(null);
+  const writerRef = useRef<SerialWriterLike | null>(null);
+  const lineBufferRef = useRef('');
+  const measuringRef = useRef(false);
+  const firmwareActiveRef = useRef(false);
+  const stopRequestedRef = useRef(false);
+  const stopAckRef = useRef<{ resolve: () => void; reject: (error: Error) => void } | null>(null);
+  const measurementStartedAtRef = useRef<number | null>(null);
+  const ldrReferenceRef = useRef<RawMeasurement | null>(null);
+  const previousDistanceRef = useRef<RawMeasurement | null>(null);
+  const anonymousSessionRef = useRef<string | null>(null);
+  const sessionApi = useMemo(() => createSessionApi(), []);
+
+  const currentStep: 1 | 2 | 3 = connectionState === 'ready' || connectionState === 'measuring'
+    ? 3
+    : selected ? 2 : 1;
+  const connected = connectionState === 'ready' || connectionState === 'measuring';
+  const visibleSamples = samples.filter((sample) => sample.source === 'demo' || freshnessTick - sample.receivedAt <= FRESH_VALUE_MS);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setFreshnessTick(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const readLine = useCallback(async (deadlineMs?: number): Promise<string> => {
+    const reader = readerRef.current;
+    if (!reader) throw new Error('READER_UNAVAILABLE');
+    while (true) {
+      const newlineIndex = lineBufferRef.current.indexOf('\n');
+      if (newlineIndex >= 0) {
+        const line = lineBufferRef.current.slice(0, newlineIndex).trim();
+        lineBufferRef.current = lineBufferRef.current.slice(newlineIndex + 1);
+        if (line) {
+          setRawLine(line.slice(0, 320));
+          return line;
+        }
+      }
+      const readPromise = reader.read();
+      const result = deadlineMs
+        ? await Promise.race([
+            readPromise,
+            new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('ACK_TIMEOUT')), deadlineMs)),
+          ])
+        : await readPromise;
+      if (result.done) throw new Error('SERIAL_CLOSED');
+      if (result.value) {
+        const nextBuffer = lineBufferRef.current + decoder.decode(result.value, { stream: true }).replace(/\r/g, '');
+        if (nextBuffer.length > MAX_LINE_BUFFER) {
+          lineBufferRef.current = '';
+          throw new Error('PROTOCOL_LINE_TOO_LONG');
+        }
+        lineBufferRef.current = nextBuffer;
+      }
+    }
+  }, []);
+
+  const send = useCallback(async (command: string) => {
+    if (!writerRef.current) throw new Error('WRITER_UNAVAILABLE');
+    await writerRef.current.write(encoder.encode(`${command}\n`));
+    setDiagnostic(`명령 전송: ${command}`);
+  }, []);
+
+  const waitForAck = useCallback(async (
+    command: string,
+    expectedCommand: 'PING' | 'MODE' | 'STOP',
+    expectedMode?: SensorPackId,
+  ) => {
+    await send(command);
+    const started = Date.now();
+    while (Date.now() - started < ACK_TIMEOUT_MS) {
+      const remaining = ACK_TIMEOUT_MS - (Date.now() - started);
+      const line = await readLine(remaining);
+      const parsed = parseProtocolLine(line);
+      if (!parsed.ok) {
+        setDiagnostic(`무시한 잘못된 응답: ${parsed.error.code}`);
+        continue;
+      }
+      if (parsed.message.kind === 'error') {
+        throw new Error(`DEVICE_ERROR:${parsed.message.code}`);
+      }
+      if (parsed.message.kind === 'ack' && matchesAck(parsed.message, expectedCommand, expectedMode)) {
+        setDiagnostic(`${command} ACK 확인`);
+        return;
+      }
+      setDiagnostic(`${command}과 일치하지 않는 응답을 무시함`);
+    }
+    throw new Error('ACK_TIMEOUT');
+  }, [readLine, send]);
+
+  const closeSerial = useCallback(async () => {
+    measuringRef.current = false;
+    firmwareActiveRef.current = false;
+    stopRequestedRef.current = false;
+    measurementStartedAtRef.current = null;
+    const reader = readerRef.current;
+    const writer = writerRef.current;
+    const port = portRef.current;
+    readerRef.current = null;
+    writerRef.current = null;
+    portRef.current = null;
+    try { await reader?.cancel(); } catch { /* already closed */ }
+    try { reader?.releaseLock(); } catch { /* lock already released */ }
+    try { writer?.releaseLock(); } catch { /* lock already released */ }
+    try { await port?.close(); } catch { /* disconnected by browser */ }
+    lineBufferRef.current = '';
+  }, []);
+
+  useEffect(() => {
+    if (connectionState !== 'measuring') return;
+    const latestLiveAt = samples
+      .filter((sample) => sample.source === 'real' || sample.source === 'derived')
+      .reduce((latest, sample) => Math.max(latest, sample.receivedAt), 0);
+    const freshnessBoundary = latestLiveAt || measurementStartedAtRef.current;
+    if (freshnessBoundary !== null && freshnessTick - freshnessBoundary >= FRESH_VALUE_MS) {
+      measuringRef.current = false;
+      firmwareActiveRef.current = false;
+      measurementStartedAtRef.current = null;
+      setSamples([]);
+      setHistory([]);
+      setFreshnessMessage('현재값 없음 · 새 센서값이 3초 동안 오지 않아 연결을 종료했어요.');
+      setConnectionState('error');
+      setConnectionMessage('새 센서값이 3초 동안 오지 않았어요. 현재값은 모두 지웠습니다. USB를 다시 꽂고 배선을 확인한 뒤 재연결해 주세요.');
+      setDiagnostic('측정 오류: SENSOR_DATA_TIMEOUT');
+      void closeSerial();
+    } else if (latestLiveAt > 0) {
+      setFreshnessMessage('');
+    }
+  }, [closeSerial, connectionState, freshnessTick, samples]);
+
+  useEffect(() => () => { void closeSerial(); }, [closeSerial]);
+
+  const connect = useCallback(async () => {
+    setSamples([]);
+    setHistory([]);
+    setFreshnessMessage('');
+    ldrReferenceRef.current = null;
+    previousDistanceRef.current = null;
+    const serial = (navigator as Navigator & { serial?: SerialNavigatorLike }).serial;
+    if (!serial) {
+      setConnectionState('unsupported');
+      setConnectionMessage('이 브라우저에서는 센서 연결을 지원하지 않아요. PC용 Chrome 또는 Edge에서 HTTPS 주소나 localhost로 열어 주세요.');
+      return;
+    }
+    try {
+      await closeSerial();
+      setConnectionState('requesting');
+      setConnectionMessage('목록에서 Arduino UNO를 하나 선택해 주세요.');
+      const port = await serial.requestPort();
+      await port.open({ baudRate: 115200 });
+      if (!port.readable || !port.writable) throw new Error('PORT_NOT_READY');
+      portRef.current = port;
+      readerRef.current = port.readable.getReader();
+      writerRef.current = port.writable.getWriter();
+      setConnectionState('checking');
+      setConnectionMessage('UNO와 선택한 센서 프로그램의 응답을 차례로 확인하고 있어요.');
+      await waitForAck('PING', 'PING');
+      await waitForAck(selected.modeCommand, 'MODE', selected.sensorId);
+      firmwareActiveRef.current = true;
+      await waitForAck('STOP', 'STOP');
+      firmwareActiveRef.current = false;
+      setConnectionState('ready');
+      setConnectionMessage(selected.sensorId === 'ldr'
+        ? 'UNO 통신과 ADC 응답을 확인했어요. 이 응답만으로 실제 LDR 배선이 올바른지는 확정할 수 없으니 첫 측정값을 확인해 주세요.'
+        : `${selected.sensorName}의 통신 응답을 확인하고 대기 모드로 전환했어요. 측정을 시작하면 센서 모드를 다시 확인합니다.`);
+    } catch (error) {
+      const name = error instanceof DOMException ? error.name : '';
+      const message = error instanceof Error ? error.message : '';
+      await closeSerial();
+      setConnectionState('error');
+      if (name === 'NotFoundError') {
+        setConnectionMessage('기기 선택이 취소되었어요. 준비되면 연결 버튼을 다시 눌러 주세요.');
+      } else if (message === 'ACK_TIMEOUT') {
+        setConnectionMessage('UNO 응답 시간이 지났어요. RESET 버튼을 한 번 누르고, 통합 펌웨어와 배선을 확인한 뒤 다시 연결해 주세요.');
+      } else {
+        setConnectionMessage('연결할 수 없어요. 다른 센서 프로그램을 닫고 USB 데이터 케이블을 다시 꽂은 뒤 재시도해 주세요.');
+      }
+      setDiagnostic(`연결 오류: ${message || name || 'unknown'}`);
+    }
+  }, [closeSerial, selected, waitForAck]);
+
+  const disconnect = useCallback(async () => {
+    await closeSerial();
+    setConnectionState('idle');
+    setConnectionMessage('연결을 해제했어요. 배선을 바꾸려면 지금 USB를 뽑아 주세요.');
+    setSamples([]);
+    setFreshnessMessage('');
+  }, [closeSerial]);
+
+  const buildSamples = useCallback((line: string): MeasurementSample[] => {
+    const parsed = parseProtocolLine(line);
+    if (!parsed.ok) {
+      setDiagnostic(`잘못된 센서 메시지 무시: ${parsed.error.code}`);
+      return [];
+    }
+    if (parsed.message.kind === 'error') throw new Error(`DEVICE_ERROR:${parsed.message.code}`);
+    if (parsed.message.kind !== 'measurement' || parsed.message.sensor !== selected.sensorId) {
+      if (parsed.message.kind === 'measurement') setDiagnostic('선택하지 않은 센서의 값을 무시함');
+      return [];
+    }
+    const receivedAt = Date.now();
+    const definitions = new Map(selected.measurements.map((definition) => [definition.key, definition]));
+    const next: MeasurementSample[] = parsed.message.values.map((raw) => {
+      const definition = definitions.get(raw.metric);
+      let value = raw.value;
+      if (raw.metric === 'distance' && raw.unit === 'mm') value /= 10;
+      if (raw.metric === 'distance' && raw.unit === 'm') value *= 100;
+      return {
+        id: `${raw.metric}-${raw.timestampMs}`,
+        key: raw.metric,
+        label: definition?.label ?? raw.metric,
+        value,
+        unit: definition?.unit ?? raw.unit,
+        source: 'real' as const,
+        sourceDetail: `${raw.source} · UNO에서 수신한 센서 측정값`,
+        receivedAt,
+        rawSource: raw.source,
+        rawTimestampMs: raw.timestampMs,
+        rawUnit: raw.unit,
+      };
+    });
+
+    const distance = parsed.message.values.find((value) => value.metric === 'distance');
+    if (distance) {
+      const previous = previousDistanceRef.current;
+      previousDistanceRef.current = distance;
+      if (previous) {
+        const result = deriveVelocity(previous, distance);
+        const definition = definitions.get('velocity');
+        if (result.ok && definition) {
+          next.push({
+            id: `velocity-${result.value.timestampMs}`,
+            key: 'velocity',
+            label: definition.label,
+            value: result.value.value,
+            unit: result.value.unit,
+            source: 'derived',
+            sourceDetail: '연속 거리의 변화량 ÷ 센서 시간 변화량 (부호 유지)',
+            receivedAt,
+            rawSource: distance.source,
+            rawTimestampMs: distance.timestampMs,
+            rawUnit: distance.unit,
+            calculation: result.value,
+          });
+        }
+      }
+    }
+
+    const light = parsed.message.values.find((value) => value.metric === 'relativeLight');
+    if (light) {
+      if (ldrReferenceRef.current === null) ldrReferenceRef.current = light;
+      const result = deriveRelativeTransmittance(light, ldrReferenceRef.current);
+      const definition = definitions.get('relativeTransmittance');
+      if (result.ok && definition) {
+        next.push({
+          id: `relativeTransmittance-${result.value.timestampMs}`,
+          key: 'relativeTransmittance',
+          label: definition.label,
+          value: result.value.value,
+          unit: result.value.unit,
+          source: 'derived',
+          sourceDetail: '현재 LDR 원시값 ÷ 첫 기준 원시값 × 100',
+          receivedAt,
+          rawSource: light.source,
+          rawTimestampMs: light.timestampMs,
+          rawUnit: light.unit,
+          calculation: result.value,
+        });
+      }
+    }
+    return next;
+  }, [selected.measurements, selected.sensorId]);
+
+  const startMeasurement = useCallback(async () => {
+    if (!connected || measuringRef.current) return;
+    let receiveLoopStarted = false;
+    setSamples([]);
+    setHistory([]);
+    setFreshnessMessage('새 센서값을 기다리고 있어요.');
+    try {
+      if (!firmwareActiveRef.current) {
+        setConnectionState('checking');
+        setConnectionMessage('센서 모드를 다시 시작하고 UNO 응답을 확인하고 있어요.');
+        await waitForAck(selected.modeCommand, 'MODE', selected.sensorId);
+        firmwareActiveRef.current = true;
+      }
+      measuringRef.current = true;
+      receiveLoopStarted = true;
+      measurementStartedAtRef.current = Date.now();
+      setConnectionState('measuring');
+      setConnectionMessage('UNO에서 새 센서값을 받고 있어요.');
+      while (measuringRef.current) {
+        const line = await readLine();
+        if (stopRequestedRef.current) {
+          const parsed = parseProtocolLine(line);
+          if (parsed.ok && parsed.message.kind === 'ack' && matchesAck(parsed.message, 'STOP')) {
+            measuringRef.current = false;
+            measurementStartedAtRef.current = null;
+            stopAckRef.current?.resolve();
+            break;
+          }
+          if (parsed.ok && parsed.message.kind === 'error') {
+            const error = new Error(`DEVICE_ERROR:${parsed.message.code}`);
+            stopAckRef.current?.reject(error);
+            throw error;
+          }
+          setDiagnostic('STOP과 일치하지 않는 응답을 무시함');
+          continue;
+        }
+        const next = buildSamples(line);
+        if (!next.length) continue;
+        setSamples((previous) => {
+          const keys = new Set(next.map((item) => item.key));
+          return [...previous.filter((item) => !keys.has(item.key)), ...next];
+        });
+        setHistory((previous) => [...previous, ...next].slice(-64));
+        setFreshnessMessage('');
+      }
+    } catch (error) {
+      if (!measuringRef.current && receiveLoopStarted) return;
+      measuringRef.current = false;
+      measurementStartedAtRef.current = null;
+      setConnectionState('error');
+      setConnectionMessage('측정 중 연결이 끊겼어요. 이전 값은 숨겼습니다. USB와 배선을 확인하고 다시 연결해 주세요.');
+      setSamples([]);
+      setDiagnostic(`수신 오류: ${error instanceof Error ? error.message : 'unknown'}`);
+      await closeSerial();
+    }
+  }, [buildSamples, closeSerial, connected, readLine, selected.modeCommand, selected.sensorId, waitForAck]);
+
+  const stopMeasurement = useCallback(async () => {
+    if (!measuringRef.current || stopRequestedRef.current) return;
+    stopRequestedRef.current = true;
+    setConnectionState('checking');
+    setConnectionMessage('측정을 멈추고 UNO 응답을 확인하고 있어요.');
+    const ackPromise = new Promise<void>((resolve, reject) => {
+      stopAckRef.current = { resolve, reject };
+    });
+    try {
+      await send('STOP');
+      await Promise.race([
+        ackPromise,
+        new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('ACK_TIMEOUT')), ACK_TIMEOUT_MS)),
+      ]);
+      firmwareActiveRef.current = false;
+      measurementStartedAtRef.current = null;
+      setConnectionState('ready');
+      setConnectionMessage('측정을 멈췄어요. 다시 시작하면 센서 모드 ACK를 새로 확인합니다.');
+      setSamples([]);
+      setFreshnessMessage('');
+    } catch (error) {
+      measuringRef.current = false;
+      firmwareActiveRef.current = false;
+      await closeSerial();
+      setConnectionState('error');
+      setConnectionMessage('UNO의 STOP 응답을 확인하지 못했어요. 연결을 해제했으니 USB와 펌웨어를 확인한 뒤 다시 연결해 주세요.');
+      setSamples([]);
+      setFreshnessMessage('');
+      setDiagnostic(`STOP 오류: ${error instanceof Error ? error.message : 'unknown'}`);
+    } finally {
+      stopRequestedRef.current = false;
+      stopAckRef.current = null;
+    }
+  }, [closeSerial, send]);
+
+  const showDemo = useCallback(() => {
+    const demoByKey: Record<string, number> = {
+      temperature: 23.4,
+      humidity: 51.8,
+      distance: 35.0,
+      velocity: -0.12,
+      relativeLight: 680,
+      relativeTransmittance: 68.0,
+    };
+    const receivedAt = Date.now();
+    const demo = selected.measurements.map((definition, index) => ({
+      id: `demo-${definition.key}-${receivedAt}`,
+      key: definition.key,
+      label: definition.label,
+      value: demoByKey[definition.key] ?? (index + 1) * 10,
+      unit: definition.unit,
+      source: 'demo' as const,
+      sourceDetail: '화면 사용법을 익히기 위한 예시 데이터',
+      receivedAt,
+    }));
+    setSamples(demo);
+    setHistory(demo);
+    setFreshnessMessage('데모 데이터입니다. 실제 센서 측정 결과가 아니에요.');
+  }, [selected.measurements]);
+
+  const saveCurrentResult = useCallback(async () => {
+    const draft = createMeasurementDraft(selected, visibleSamples);
+    if (!draft) {
+      setRecordStatus('저장하지 않았어요. 최신 실측값이 필요하며 데모·시뮬레이션 값은 저장할 수 없습니다.');
+      return;
+    }
+    setRecordBusy(true);
+    setRecordStatus('현재 결과를 저장하고 있어요.');
+    try {
+      if (!anonymousSessionRef.current) {
+        anonymousSessionRef.current = (await sessionApi.createSession()).id;
+      }
+      await sessionApi.appendMeasurement(anonymousSessionRef.current, draft);
+      setHasSavedRecords(true);
+      setRecordStatus('현재 결과를 비식별 저장 기록에 추가했어요.');
+    } catch (error) {
+      setRecordStatus(error instanceof Error ? `저장 실패: ${error.message}` : '저장하지 못했어요. 로컬 서버를 확인해 주세요.');
+    } finally {
+      setRecordBusy(false);
+    }
+  }, [selected, sessionApi, visibleSamples]);
+
+  const downloadCsv = useCallback(async () => {
+    if (!anonymousSessionRef.current || !hasSavedRecords) return;
+    setRecordBusy(true);
+    setRecordStatus('저장 기록을 불러오고 있어요.');
+    try {
+      const records = await sessionApi.listMeasurements(anonymousSessionRef.current);
+      if (!records.length) {
+        setHasSavedRecords(false);
+        setRecordStatus('CSV로 받을 저장 기록이 아직 없어요.');
+        return;
+      }
+      const url = URL.createObjectURL(new Blob([measurementsToCsv(records)], { type: 'text/csv;charset=utf-8' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `sensor-records-${anonymousSessionRef.current}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setRecordStatus('저장 기록 CSV를 만들었어요. 다운로드를 확인해 주세요.');
+    } catch (error) {
+      setRecordStatus(error instanceof Error ? `CSV 실패: ${error.message}` : 'CSV를 만들지 못했어요.');
+    } finally {
+      setRecordBusy(false);
+    }
+  }, [hasSavedRecords, sessionApi]);
+
+  const chooseExperiment = useCallback((experiment: StudentExperiment) => {
+    if (experiment.id === selected.id) return;
+    if (connected) void disconnect();
+    setSelectedId(experiment.id);
+    setSamples([]);
+    setHistory([]);
+    setFreshnessMessage('');
+    window.setTimeout(() => document.getElementById('setup')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+  }, [connected, disconnect, selected.id]);
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <a className="brand" href="#top" aria-label="센서 탐구 워크벤치 처음으로">
+          <span className="brand-mark" aria-hidden="true">S</span>
+          <span><strong>센서 탐구</strong><small>Arduino UNO 워크벤치</small></span>
+        </a>
+        <span className="privacy-note"><span aria-hidden="true">●</span> 이름·학번을 수집하지 않아요</span>
+      </header>
+
+      <main id="main-content">
+        <section className="hero" id="top">
+          <div className="hero-copy">
+            <p className="eyebrow">코딩 없이 시작하는 과학 탐구</p>
+            <h1>무엇을 탐구할까요?</h1>
+            <p>궁금한 질문 하나를 고르면 배선부터 측정까지 차근차근 안내할게요.</p>
+          </div>
+          <StepIndicator current={currentStep} />
+        </section>
+
+        <section className="experiment-section" aria-labelledby="experiment-heading">
+          <h2 id="experiment-heading" className="visually-hidden">탐구 선택</h2>
+          <div className="experiment-grid">
+            {packs.map((pack) => (
+              <ExperimentCard key={pack.id} experiment={pack} selected={pack.id === selected.id} onSelect={chooseExperiment} />
+            ))}
+          </div>
+        </section>
+
+        <section className="setup-layout" id="setup">
+          <div className="setup-main">
+            <WiringGuide experiment={selected} />
+            <SafetyCallout experiment={selected} />
+          </div>
+          <ConnectionPanel
+            experiment={selected}
+            state={connectionState}
+            message={connectionMessage}
+            onConnect={() => void connect()}
+            onDisconnect={() => void disconnect()}
+          />
+        </section>
+
+        <MeasurementPanel
+          experiment={selected}
+          connected={connected}
+          measuring={connectionState === 'measuring'}
+          samples={visibleSamples}
+          history={history}
+          onStart={() => void startMeasurement()}
+          onStop={stopMeasurement}
+          onDemo={showDemo}
+          freshnessMessage={freshnessMessage}
+        />
+
+        <RecordActions
+          canSave={createMeasurementDraft(selected, visibleSamples) !== null}
+          hasSavedRecords={hasSavedRecords}
+          busy={recordBusy}
+          status={recordStatus}
+          onSave={() => void saveCurrentResult()}
+          onDownload={() => void downloadCsv()}
+        />
+
+        <details className="advanced-panel">
+          <summary>Advanced 진단 정보</summary>
+          <p>문제가 계속될 때 선생님과 함께 확인하세요. 기본 탐구에는 필요하지 않습니다.</p>
+          <dl>
+            <div><dt>전송 속도</dt><dd>115200 baud</dd></div>
+            <div><dt>프로토콜</dt><dd>줄바꿈 JSON / ACK</dd></div>
+            <div><dt>입력 범위</dt><dd>UNO ADC 0–1023 (LDR 원시값)</dd></div>
+            <div><dt>최근 상태</dt><dd>{diagnostic}</dd></div>
+            <div><dt>최근 raw</dt><dd><code>{rawLine}</code></dd></div>
+          </dl>
+        </details>
+      </main>
+
+      <footer>
+        <p>실제 UNO 3종 하드웨어 수업 검증 전 단계의 워크벤치입니다. 데모 결과를 실측으로 사용하지 마세요.</p>
+      </footer>
+    </div>
+  );
+}

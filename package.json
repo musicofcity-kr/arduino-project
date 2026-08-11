@@ -1,0 +1,34 @@
+{
+  "name": "science-modular-workbench",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n web,api -c cyan,magenta \"npm:dev:web\" \"npm:dev:server\"",
+    "dev:web": "vite --host 127.0.0.1",
+    "dev:server": "node server/server.mjs",
+    "test": "npm run test:unit && npm run test:server",
+    "test:unit": "vitest run",
+    "test:server": "node --test --test-isolation=none server/*.test.mjs firmware/*.test.mjs",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "vite": "latest"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "latest",
+    "@testing-library/react": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@types/w3c-web-serial": "latest",
+    "concurrently": "latest",
+    "jsdom": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}
