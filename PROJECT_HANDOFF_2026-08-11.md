@@ -1,7 +1,7 @@
 ---
 document: PROJECT_HANDOFF
 project: Web App-based Integrated Modular Science Inquiry Workbench
-recorded_at: 2026-08-11T09:29:53+09:00
+recorded_at: 2026-08-11T11:48:36+09:00
 workspace: C:\all\Aduino project
 state: USER CHECK
 status: ESCALATE
@@ -30,7 +30,7 @@ evidence_level: V2
 | 패키지 검사 | C01~C26 전부 PASS, BLOCKER 0 / WARN 0 |
 | 독립 검토 | blocker/major 0건, BUILD PASS |
 | 실제 장비 검증 | 미실시 |
-| Git 증거 | `evidence_committed: false`, Git 저장소 미초기화 |
+| Git 증거 | `evidence_committed: true`, `main`이 `origin/main`을 추적 |
 
 `ESCALATE`는 빌드 실패가 아니라 실제 사람·장비 V3 확인을 기다린다는 뜻이다. 정식 상태 원본은 `STATE.md`, 요구사항 원본은 `PROJECT_SPEC.md`, 노드별 증거는 `docs/BUILD_RESULT.md`, `docs/VERIFY_RESULT.md`, `docs/EVALUATE_RESULT.md`를 따른다.
 
@@ -151,7 +151,7 @@ python tools/check_package.py
 - `node_modules`: 존재
 - `dist`: 존재
 - Arduino CLI: 설치되어 있지 않음
-- 이 작업 폴더는 현재 Git 저장소가 아님
+- Git 저장소: `main`, 원격 `https://github.com/musicofcity-kr/arduino-project.git`
 
 웹앱과 API를 함께 실행한다.
 
@@ -243,7 +243,7 @@ node server/index.mjs
 - Chrome/Edge의 Web Serial 지원과 보안 컨텍스트가 필요하다. 배포 시 HTTPS 여부를 확인한다.
 - Arduino IDE Serial Monitor가 열려 있으면 브라우저가 같은 COM 포트를 열지 못할 수 있다.
 - 실제 저장을 수행하면 `runtime-data/store.json`이 생성된다. 테스트는 별도 임시 경로를 사용한다.
-- 현재 Git 이력이 없으므로 다음 작업 전 저장소 초기화·첫 커밋 여부를 결정하는 것이 좋다. 이 작업은 사용자 승인 후 진행한다.
+- 비공개 GitHub 저장소 `musicofcity-kr/arduino-project`의 `main`에 최초 커밋을 게시했다.
 - `package.json`이 `latest` 범위를 사용하지만 현재 `package-lock.json`이 설치 버전을 고정한다. 재현성이 필요하면 lockfile을 유지한다.
 - `docs/VALIDATION_REPORT.md`는 AI Control Package 자체 검증 기록이다. 현재 앱의 39/39 근거에는 2026-08-11의 `BUILD_RESULT.md`, `VERIFY_RESULT.md`, `EVALUATE_RESULT.md`를 사용한다.
 
@@ -254,4 +254,5 @@ node server/index.mjs
 | 날짜/시각 | 작업 | 결과 | 증거 또는 파일 | 남은 문제 |
 |---|---|---|---|---|
 | 2026-08-11 | 웹앱·API·펌웨어 구현, P0 보수, V2 검증 | PASS | `docs/*_RESULT.md`, 39/39 tests | 실제 장비 V3 |
+| 2026-08-11 | Git 저장소 초기화 및 비공개 GitHub 게시 | PASS | initial commit `d20b0f9`, `origin/main` | 실제 장비 V3 |
 |  |  |  |  |  |

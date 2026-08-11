@@ -11,9 +11,9 @@ repair_target: none
 fallback_target: none
 terminal_node: COMPLETE
 terminal_reached: false
-updated_at: 2026-08-11T08:54:33+09:00
+updated_at: 2026-08-11T11:48:36+09:00
 evidence_level: V2
-evidence_committed: false
+evidence_committed: true
 evidence_unit: 39/39
 evidence_e2e: browser-flow-pass
 evidence_build: 28 modules
