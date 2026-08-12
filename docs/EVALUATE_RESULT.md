@@ -6,9 +6,9 @@ revision: 1
 superseded: false
 evidence_level: V2
 evidence_unit: 39/39
-evidence_e2e: browser-flow-pass
-evidence_build: 28 modules
-recorded_at: 2026-08-11T08:52:59+09:00
+evidence_e2e: browser-flow-pass+design-qa-pass
+evidence_build: 1812 modules
+recorded_at: 2026-08-12T09:50:55+09:00
 ---
 
 # EVALUATE RESULT
