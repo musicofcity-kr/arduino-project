@@ -25,7 +25,7 @@ evidence_level: V2
 | 로컬 API | 구현 및 자동 검증 완료 |
 | Arduino 펌웨어 | UNO R3용 통합 스케치 구현 완료 |
 | 자동 테스트 | 39/39 PASS |
-| production build | PASS, 28 modules transformed |
+| production build | PASS, 1,812 modules transformed |
 | 브라우저 검증 | 핵심 흐름 PASS, 콘솔 warning/error 0건 |
 | 패키지 검사 | C01~C26 전부 PASS, BLOCKER 0 / WARN 0 |
 | 독립 검토 | blocker/major 0건, BUILD PASS |
@@ -119,7 +119,7 @@ python tools/check_package.py
 - Vitest: 3 files, 30 tests PASS
 - Node server/firmware contract: 9 tests PASS
 - 합계: 39/39 PASS
-- TypeScript 및 Vite production build: PASS, 28 modules
+- TypeScript 및 Vite production build: PASS, 1,812 modules
 - 패키지 검사: PASS, BLOCKER 0 / WARN 0
 - Arduino UNO compile: PASS, flash 7,556 bytes (23%), SRAM 668 bytes (32%)
 - 저장 통합 테스트는 실제 임시 JsonDataStore를 띄워 session 생성 → POST → GET → CSV 변환까지 확인한다.
@@ -259,4 +259,5 @@ node server/index.mjs
 | 2026-08-11 | 웹앱·API·펌웨어 구현, P0 보수, V2 검증 | PASS | `docs/*_RESULT.md`, 39/39 tests | 실제 장비 V3 |
 | 2026-08-11 | Git 저장소 초기화 및 비공개 GitHub 게시 | PASS | initial commit `d20b0f9`, `origin/main` | 실제 장비 V3 |
 | 2026-08-11 | Arduino CLI·AVR core·DHT 의존성 설치 및 UNO compile | PASS | `docs/HARDWARE_VERIFICATION_LOG.md` | V3-02~08 |
+| 2026-08-12 | 패키지·39/39 테스트·1,812-module build·CSS 390px 브라우저·UNO compile 재검증 | PASS (V2) | `STATE.md`, `docs/*_RESULT.md` | 보드 미감지, V3-02~08 |
 |  |  |  |  |  |

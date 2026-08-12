@@ -1,9 +1,9 @@
 ---
 document: HARDWARE_VERIFICATION_LOG
 project: Web App-based Integrated Modular Science Inquiry Workbench
-recorded_at: 2026-08-11T13:49:04+09:00
+recorded_at: 2026-08-12T10:00:53+09:00
 overall_status: ESCALATE
-completed_check: V3-01
+completed_check: firmware-compile-v2
 remaining_checks: V3-02..V3-08
 ---
 
@@ -11,13 +11,13 @@ remaining_checks: V3-02..V3-08
 
 ## 현재 판정
 
-UNO 대상 실제 툴체인 컴파일은 통과했다. 실제 보드, COM 포트, 센서 3종이 현재 PC에서 감지되지 않으므로 업로드와 실측은 수행하지 않았으며 `USER CHECK / ESCALATE`를 유지한다.
+UNO 대상 실제 툴체인 컴파일은 V2 증거로 통과했다. 2026-08-12 재확인에서도 `No boards found.`이고 직렬 포트가 없으므로 업로드와 실측은 수행하지 않았으며 `USER CHECK / ESCALATE`를 유지한다.
 
-## V3-01 펌웨어 컴파일
+## V3 진입 전 펌웨어 컴파일 (V2)
 
 | 항목 | 증거 |
 |---|---|
-| 판정 | PASS |
+| 판정 | PASS (V2, 실제 보드 검증 아님) |
 | Arduino CLI | 1.5.1 |
 | Board core | `arduino:avr` 1.8.8 |
 | FQBN | `arduino:avr:uno` |
@@ -41,7 +41,7 @@ UNO 대상 실제 툴체인 컴파일은 통과했다. 실제 보드, COM 포트
 
 | ID | 항목 | 상태 | 다음 증거 |
 |---|---|---|---|
-| V3-01 | UNO 대상 컴파일 | PASS | 위 버전·메모리 사용량 |
+| V3-01 | UNO 대상 컴파일 준비 | PASS (V2) | 위 버전·메모리 사용량 |
 | V3-02 | 실제 UNO 업로드와 PING | 미확인 | 보드/포트, 업로드 로그, `ACK:PING` |
 | V3-03 | DHT11 | 미확인 | MODE ACK, 연속 온도·습도, timeout 복구 |
 | V3-04 | HC-SR04 | 미확인 | 거리 `cm`, 속도 `m/s`, STOP·재시작 |

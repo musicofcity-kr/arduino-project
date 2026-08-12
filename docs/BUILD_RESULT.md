@@ -6,9 +6,9 @@ revision: 1
 superseded: false
 evidence_level: V2
 evidence_unit: 39/39
-evidence_e2e: browser-flow-pass
-evidence_build: 28 modules
-recorded_at: 2026-08-11T08:52:57+09:00
+evidence_e2e: browser-flow-pass+responsive-390-pass
+evidence_build: 1812 modules
+recorded_at: 2026-08-12T10:00:51+09:00
 ---
 
 # BUILD RESULT
@@ -49,4 +49,4 @@ React/Vite 학생 화면, 엄격한 직렬 프로토콜·계산 계층, Node 로
 
 ## 한계
 
-실제 UNO 컴파일·업로드와 센서 실측은 수행하지 않았다.
+UNO 대상 펌웨어 컴파일은 통과했지만, 실제 UNO 업로드와 센서 실측은 수행하지 않았다.
