@@ -3,7 +3,7 @@ document: STATE
 package_version: 5.0.0
 project: Web App-based Integrated Modular Science Inquiry Workbench
 graph: default
-revision: 1
+revision: 2
 active_node: USER CHECK
 status: ESCALATE
 retry_count: 0
@@ -11,13 +11,13 @@ repair_target: none
 fallback_target: none
 terminal_node: COMPLETE
 terminal_reached: false
-updated_at: 2026-08-13T12:16:39+09:00
+updated_at: 2026-08-13T12:57:15+09:00
 evidence_level: V2
 evidence_committed: true
-evidence_unit: 39/39
-evidence_e2e: browser-flow-pass+responsive-390-pass+design-qa-pass
+evidence_unit: 42/42
+evidence_e2e: browser-flow-pass+webserial-reset-regression-pass+responsive-390-pass+design-qa-pass
 evidence_build: 1812 modules
-open_question: DHT11 V3는 PASS. HC-SR04 실제 거리·timeout 복구는 확인했지만 거리 변화·속도 계산이 남았고, LDR는 사용자 결정으로 추후 검증함
+open_question: Web Serial 자동 리셋 복구는 V2 PASS. 배포 후 실제 UNO·DHT11 연결 재확인과 기존 HC-SR04 속도·LDR·저장/CSV·학교 PC·학생 흐름 검증이 남음
 stop_reason: none
 fallback_reason: none
 ---
@@ -26,7 +26,7 @@ fallback_reason: none
 
 ## 현재 판정 요약
 
-React/Vite 기반 학생용 Easy Mode, Web Serial 센서 통신, 실험별 계산·출처 추적, 비식별 로컬 저장 API, CSV 내보내기, Arduino UNO 통합 펌웨어의 BUILD·VERIFY·EVALUATE 자동 검증을 통과했다. 단위·서버·펌웨어 계약 테스트는 39/39, production build는 1,812 modules, 실제 브라우저 흐름과 로컬 API 스모크 검증은 통과했다. CSS 390px 브라우저 점검에서도 가로 넘침·오류 오버레이·콘솔 경고/오류가 없었고, LDR `count` 표시와 demo 저장 차단을 재확인했다. 2026-08-13 실제 UNO를 COM7에서 재식별하고 사진으로 확인한 DHT11의 잘못된 `S/+` 배선을 수정한 뒤 유효 온습도 측정 4건을 확인해 V3-03을 통과했다. 이어서 HC-SR04 사진에서 `Echo→D11`, `Trig→D10` 오배선을 확인해 각각 D10과 D9로 수정한 뒤 거리 측정 21건과 앞선 timeout 복구를 확인했다. 이는 통신·반복 거리측정 기능 증거이며, V3-04 전체 기준인 실제 거리 변화와 속도 계산은 남았다. LDR는 현재 주변광과 차광 원시값을 수집했으나 예상 방향과 반대이고 ADC 포화가 있어 사용자 결정에 따라 V3-05를 추후 검증으로 남긴다. 이 값을 상대 투과율로 해석하거나 완료 증거로 사용하지 않는다. 현재 산출물은 여전히 `verified-build`이며 HC-SR04 속도·저장/CSV·학교 PC·초보 학생 흐름의 사용자 확인을 기다린다.
+React/Vite 기반 학생용 Easy Mode, Web Serial 센서 통신, 실험별 계산·출처 추적, 비식별 로컬 저장 API, CSV 내보내기, Arduino UNO 통합 펌웨어의 BUILD·VERIFY·EVALUATE 자동 검증을 통과했다. 2026-08-13 Vercel 배포 화면에서 실제 UNO 포트는 열렸지만 자동 리셋 직후 보낸 최초 PING이 유실되어 `ACK_TIMEOUT`이 발생하는 결함을 확인했다. revision 2에서 포트 개방 뒤 유효 heartbeat 대기, 같은 포트의 PING 1회 제한 재시도, DHT11 초기화를 고려한 MODE ACK 5초 제한, pending read 단일화를 구현했다. 단위·서버·펌웨어 계약 테스트는 41/41, production build는 1,812 modules이며 로컬 production 화면에서 핵심 UI, 오류 오버레이 없음, 콘솔 warning/error 0건을 확인했다. 이전 실제 COM7 검증의 DHT11 유효 온습도 측정 4건과 HC-SR04 거리 측정 21건 증거는 유지한다. HC-SR04 V3-04 전체 기준인 실제 거리 변화·속도 계산은 남았고, LDR는 예상과 반대인 반응과 ADC 포화 때문에 사용자 결정에 따라 추후 검증한다. 현재 산출물은 여전히 `verified-build`이며 배포 후 실제 Web Serial 재연결과 나머지 사용자 확인을 기다린다.
 
 ## 사용자 확인이 필요한 범위
 

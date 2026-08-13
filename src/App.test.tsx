@@ -6,7 +6,7 @@ import type { MeasurementSample, StudentExperiment } from './components/types';
 const textEncoder = new TextEncoder();
 
 function installSerial(input: string) {
-  const chunks = [textEncoder.encode(input)];
+  const chunks = [textEncoder.encode(`{"type":"heartbeat","timestampMs":0}\n${input}`)];
   const writes: string[] = [];
   const reader = {
     read: vi.fn(async () => chunks.length
@@ -32,10 +32,13 @@ function installSerial(input: string) {
   return { writes };
 }
 
-function installResponsiveSerial() {
-  const queued: Uint8Array[] = [];
+function installResponsiveSerial(initialHeartbeat = true, measurementModeDelayMs = 0) {
+  const queued: Uint8Array[] = initialHeartbeat
+    ? [textEncoder.encode('{"type":"heartbeat","timestampMs":0}\n')]
+    : [];
   const pending: Array<(result: { value?: Uint8Array; done: boolean }) => void> = [];
   const writes: string[] = [];
+  let modeCount = 0;
   const enqueue = (line: string) => {
     const value = textEncoder.encode(`${line}\n`);
     const resolve = pending.shift();
@@ -56,7 +59,14 @@ function installResponsiveSerial() {
       const command = new TextDecoder().decode(value).trim();
       writes.push(`${command}\n`);
       if (command === 'PING') enqueue('ACK:PING');
-      else if (command === 'MODE:DHT11') enqueue('ACK:MODE:DHT11');
+      else if (command === 'MODE:DHT11') {
+        modeCount += 1;
+        if (modeCount >= 2 && measurementModeDelayMs > 0) {
+          window.setTimeout(() => enqueue('ACK:MODE:DHT11'), measurementModeDelayMs);
+        } else {
+          enqueue('ACK:MODE:DHT11');
+        }
+      }
       else if (command === 'STOP') enqueue('ACK:STOP');
     }),
     releaseLock: vi.fn(),
@@ -67,19 +77,140 @@ function installResponsiveSerial() {
     open: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
   };
+  const requestPort = vi.fn(async () => port);
   Object.defineProperty(navigator, 'serial', {
     configurable: true,
-    value: { requestPort: vi.fn(async () => port) },
+    value: { requestPort },
   });
-  return { writes };
+  return { writes, enqueue, reader, writer, port, requestPort };
+}
+
+function installResettingSerial() {
+  const queued: Uint8Array[] = [textEncoder.encode('{"type":"heartbeat","timestampMs":0}\n')];
+  const pending: Array<(result: { value?: Uint8Array; done: boolean }) => void> = [];
+  const writes: string[] = [];
+  let pingCount = 0;
+  const enqueue = (line: string) => {
+    const value = textEncoder.encode(`${line}\n`);
+    const resolve = pending.shift();
+    if (resolve) resolve({ value, done: false });
+    else queued.push(value);
+  };
+  const reader = {
+    read: vi.fn(() => queued.length
+      ? Promise.resolve({ value: queued.shift(), done: false })
+      : new Promise<{ value?: Uint8Array; done: boolean }>((resolve) => pending.push(resolve))),
+    cancel: vi.fn(async () => {
+      pending.splice(0).forEach((resolve) => resolve({ value: undefined, done: true }));
+    }),
+    releaseLock: vi.fn(),
+  };
+  const writer = {
+    write: vi.fn(async (value: Uint8Array) => {
+      const command = new TextDecoder().decode(value).trim();
+      writes.push(`${command}\n`);
+      if (command === 'PING') {
+        pingCount += 1;
+        if (pingCount === 2) enqueue('ACK:PING');
+      } else if (command === 'MODE:DHT11') enqueue('ACK:MODE:DHT11');
+      else if (command === 'STOP') enqueue('ACK:STOP');
+    }),
+    releaseLock: vi.fn(),
+  };
+  const port = {
+    readable: { getReader: () => reader },
+    writable: { getWriter: () => writer },
+    open: vi.fn(async () => undefined),
+    close: vi.fn(async () => undefined),
+  };
+  const requestPort = vi.fn(async () => port);
+  Object.defineProperty(navigator, 'serial', {
+    configurable: true,
+    value: { requestPort },
+  });
+  return { writes, reader, writer, port, requestPort };
 }
 
 afterEach(() => {
   cleanup();
   Reflect.deleteProperty(navigator, 'serial');
+  vi.useRealTimers();
 });
 
 describe('Student Easy Mode protocol boundary', () => {
+  it('waits for a boot heartbeat before sending PING', async () => {
+    const serial = installResponsiveSerial(false);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+    expect(serial.writes).toEqual([]);
+    expect(serial.port.open).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      serial.enqueue('{"type":"heartbeat","timestampMs":0}');
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    });
+
+    expect(screen.getByText('센서 준비 완료')).toBeInTheDocument();
+    expect(serial.writes).toEqual(['PING\n', 'MODE:DHT11\n', 'STOP\n']);
+  });
+
+  it('recovers when UNO auto-reset drops the first PING without reopening the port', async () => {
+    vi.useFakeTimers();
+    const serial = installResettingSerial();
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+    expect(serial.writes).toEqual(['PING\n']);
+    expect(serial.port.open).toHaveBeenCalledTimes(1);
+    expect(serial.reader.cancel).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1800);
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    });
+
+    expect(screen.getByText('센서 준비 완료')).toBeInTheDocument();
+    expect(serial.writes).toEqual(['PING\n', 'PING\n', 'MODE:DHT11\n', 'STOP\n']);
+    expect(serial.requestPort).toHaveBeenCalledTimes(1);
+    expect(serial.port.open).toHaveBeenCalledTimes(1);
+    expect(serial.reader.cancel).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /연결 해제/ }));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(serial.reader.cancel).toHaveBeenCalledTimes(1);
+    expect(serial.reader.releaseLock).toHaveBeenCalledTimes(1);
+    expect(serial.writer.releaseLock).toHaveBeenCalledTimes(1);
+    expect(serial.port.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows a DHT11 fresh MODE ACK that arrives after three seconds when measurement starts', async () => {
+    vi.useFakeTimers();
+    const serial = installResponsiveSerial(true, 3500);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    await act(async () => { for (let index = 0; index < 8; index += 1) await Promise.resolve(); });
+    expect(screen.getByText('센서 준비 완료')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(screen.getByText('UNO 응답 확인 중')).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    });
+    expect(screen.getByText('측정 중')).toBeInTheDocument();
+    expect(serial.writes).toEqual(['PING\n', 'MODE:DHT11\n', 'STOP\n', 'MODE:DHT11\n']);
+
+    fireEvent.click(screen.getByRole('button', { name: /측정 멈추기/ }));
+    await act(async () => { for (let index = 0; index < 8; index += 1) await Promise.resolve(); });
+    expect(screen.getByText('센서 준비 완료')).toBeInTheDocument();
+  });
+
   it('does not become ready when MODE ACK is for another sensor', async () => {
     const serial = installSerial('ACK:PING\nACK:MODE:HC_SR04\n');
     render(<App />);

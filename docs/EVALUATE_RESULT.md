@@ -2,13 +2,13 @@
 document: NODE_RESULT
 node: EVALUATE
 verdict: PASS
-revision: 1
+revision: 2
 superseded: false
 evidence_level: V2
-evidence_unit: 39/39
-evidence_e2e: browser-flow-pass+responsive-390-pass+design-qa-pass
+evidence_unit: 42/42
+evidence_e2e: browser-flow-pass+webserial-reset-regression-pass+responsive-390-pass+design-qa-pass
 evidence_build: 1812 modules
-recorded_at: 2026-08-12T10:00:53+09:00
+recorded_at: 2026-08-13T12:57:15+09:00
 ---
 
 # EVALUATE RESULT
@@ -28,6 +28,7 @@ recorded_at: 2026-08-12T10:00:53+09:00
 - LDR는 lux가 아닌 원시 상대 신호와 기준 대비 상대 투과율로 표시했다.
 - 교육과정 코드는 공식 확인 전 draft로 표시했다.
 - 학생 개인정보를 수집하지 않고 서버도 명시적 개인정보 필드를 거부한다.
+- UNO 자동 리셋 동안 성공 상태를 먼저 표시하지 않고 유효 heartbeat와 exact ACK를 순서대로 확인하며, PING 재시도는 같은 포트에서 1회로 제한한다.
 - CSS 390px 브라우저 재검증에서 가로 넘침·오류 오버레이·콘솔 경고/오류가 없고, LDR `count` 표시와 demo 저장 차단을 확인했다.
 
 ## PASS 조건과 판정
