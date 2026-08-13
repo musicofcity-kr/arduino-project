@@ -120,7 +120,11 @@ export function LiveSensorChart({ experiment, history, connected, measuring, sta
         <small role="status" aria-live="polite" aria-atomic="true">{stateLabel}</small>
       </div>
       {series.length ? (
-        <div className="live-chart-series-list">
+        <div
+          className="live-chart-series-list"
+          data-layout={series.length === 1 ? 'single' : 'multiple'}
+          data-series-count={series.length}
+        >
           {series.map((item) => {
             const definition = experiment.measurements.find((candidate) => candidate.key === item.key);
             const precision = definition?.precision ?? (item.unit === 'count' ? 0 : 1);

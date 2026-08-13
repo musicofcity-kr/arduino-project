@@ -2,58 +2,55 @@
 document: NODE_RESULT
 node: BUILD
 verdict: PASS
-revision: 6
+revision: 7
 evidence_level: V2
-evidence_unit: 79/79
-evidence_e2e: local-production-browser-1280+390-pass+timing-boundary-regression-pass+uno-compile-pass
+evidence_unit: 82/82
+evidence_e2e: local-production-browser-1848+1280+390-single+dual-series-no-overlap+root-overflow0
 evidence_build: 1816 modules
-recorded_at: 2026-08-13T15:57:00+09:00
+recorded_at: 2026-08-14T07:52:19+09:00
 ---
 
 # BUILD RESULT
 
 ## INPUT
 
-고정 센서 주기 대신 학생이 웹앱에서 실제 측정 간격과 총 측정시간을 안전하게 선택하고, 그래프·CSV·STOP 경계까지 같은 설정으로 추적하려는 USER CHECK 요청.
+DHT11 측정 중 온도 그래프 아래의 상대습도 그래프가 측정 패널 높이를 넘어 다음 대시보드 행에 가려지는 USER CHECK 결함. 센서팩에 따라 실제 그래프가 1개 또는 여러 개일 수 있으므로 개수별 고정 높이가 아닌 유연한 레이아웃이 필요했다.
 
 ## TASK
 
-- 펌웨어에 `SET_INTERVAL:<sensor>:<ms>`와 정확한 `ACK:INTERVAL:<sensor>:<ms>` 계약을 추가했다.
-- DHT11 2,000~10,000ms, HC-SR04/LDR 500~10,000ms를 펌웨어에서 강제하고 UI는 검증된 preset만 제공한다.
-- interval ACK 성공 뒤에만 MODE와 새 run을 시작하며 설정 실패 시 기존 그래프·CSV를 보존한다.
-- 절대 deadline 뒤 프레임은 기록 전 제외하고, 수동/자동 STOP 경합에도 run STOP을 한 번만 전송한다.
-- 요청 간격에 맞춰 sensor freshness를 동적으로 조정하되 7초 transport heartbeat 계약은 분리 유지했다.
-- CSV에 requested interval/duration, duration mode, startedAt/endedAt, stopReason과 원시 device timestamp를 함께 기록했다.
-- 학생 UI에 44px native select, visible configuring/stopping 상태, countdown, 완료/직접 멈춤/중단 CSV 문구를 추가했다.
+- 대시보드 첫 행을 화면 높이에 맞춘 고정 축소가 아니라 측정 콘텐츠의 최대 높이에 맞춰 확장하도록 변경했다.
+- 측정 패널과 그래프 컨테이너가 flex 축소로 눌리지 않게 하고, 다음 행은 확장된 측정 패널 아래로 이동하도록 했다.
+- 실제 렌더된 raw 시리즈 수를 `single`/`multiple`과 개수로 표시하고, 그래프 카드는 `auto-fit` 반응형 grid로 배치했다.
+- 모바일에서는 그래프를 한 열로 유지하고 기존 44px 조작 영역을 보존했다.
+- raw timestamp, source, unit, 24점 제한, derived 제외, CSV와 센서 통신 계약은 변경하지 않았다.
 
 ## OUTPUT
 
-- `firmware/UniversalSensorFirmware/UniversalSensorFirmware.ino`, `firmware/README.md`, firmware contract test
-- `src/domain/measurementTiming.ts`, protocol parser와 domain tests
-- `src/App.tsx`, `src/App.test.tsx`, `DashboardMeasurement.tsx`, `styles.css`
-- `src/services/liveSessionCsv.ts`와 serializer tests
+- `src/components/LiveSensorChart.tsx`
+- `src/components/LiveSensorChart.test.tsx`
+- `src/styles.css`
+- revision 7 상태·노드 결과 문서
 
 ## PASS 조건과 판정
 
 | 조건 | 결과 | 증거 등급 |
 |---|---|---|
-| 센서별 간격 범위와 exact ACK 뒤에만 run 시작 | PASS | V2 |
-| 예약 deadline 이후 데이터 배제·STOP 1회 | PASS | V2 |
-| 0행 비완료, 실패 시 이전 그래프·CSV 보존 | PASS | V2 |
-| 요청/실제 시각·출처·종료사유 CSV 추적 | PASS | V2 |
-| 1280px·390px 학생 UI와 접근 가능한 상태 표현 | PASS | V2 |
-| UNO target compile 8,340 bytes / SRAM 814 bytes | PASS | V2 |
+| 실제 raw 시리즈 1·2·4개를 빠짐없이 렌더링 | PASS | V2 |
+| 복수 그래프가 측정 패널 내부에서 자연 높이 유지 | PASS | V2 |
+| 다음 대시보드 행과 그래프 겹침 0 | PASS | V2 |
+| 1848px·1280px·390px에서 문서 가로 overflow 0 | PASS | V2 |
+| 단위·통계·ARIA title/description 유지 | PASS | V2 |
 
 ## Negative / Fail-closed 검증
 
-다른 센서나 다른 ms의 INTERVAL ACK, 범위 밖 값, MODE/STOP 실패, 유효값 0행을 성공으로 통과시키지 않는다. 예약 종료시각 이후 프레임, heartbeat, device error는 측정 CSV 행이 아니다. HC 속도는 요청 주기가 아니라 두 원시 device timestamp의 실제 차를 사용한다.
+그래프 개수는 실험 정의 총수 대신 실제 raw 데이터가 존재하는 시리즈 수를 사용한다. derived 값은 별도 raw 그래프로 추가하지 않으며, 데이터 계산·CSV 행·측정 timestamp는 레이아웃 변경으로 수정하지 않는다. 그래프별 고정 패널 높이와 내부 이중 스크롤을 추가하지 않았다.
 
 ## FAIL ROUTE 발화 기록
 
 | 판정 | 목적지 | 사유 |
 |---|---|---|
-| REPAIR | BUILD | USER CHECK에서 승인된 측정 주기·총 시간 UI가 펌웨어·CSV 계약까지 변경하므로 revision 6 BUILD로 회귀 |
+| REPAIR | BUILD | USER CHECK에서 복수 그래프 clipping이 재현되어 revision 7 BUILD로 회귀 |
 
 ## 한계
 
-새 펌웨어는 UNO target compile까지만 확인했다. 실제 UNO 업로드 후 선택한 주기와 예약 종료의 장시간 V3 실측은 USER CHECK에 남긴다.
+production preview는 demo 데이터로 레이아웃을 검증했다. 배포 Vercel URL과 실제 Web Serial 장시간 측정 중 동적 그래프 누적은 USER CHECK에 남긴다.
