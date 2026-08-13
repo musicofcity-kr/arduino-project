@@ -2,13 +2,13 @@
 document: NODE_RESULT
 node: BUILD
 verdict: PASS
-revision: 2
+revision: 3
 superseded: false
 evidence_level: V2
-evidence_unit: 42/42
-evidence_e2e: browser-flow-pass+webserial-reset-regression-pass+responsive-390-pass+design-qa-pass
+evidence_unit: 44/44
+evidence_e2e: webserial-broad-picker-regression-pass+webserial-reset-regression-pass
 evidence_build: 1812 modules
-recorded_at: 2026-08-13T12:57:15+09:00
+recorded_at: 2026-08-13T13:09:46+09:00
 ---
 
 # BUILD RESULT
@@ -22,6 +22,8 @@ Arduino UNO Web Serial, DHT11/HC-SR04/LDR Sensor Pack 3종, 대응 Experiment Pa
 React/Vite 학생 화면, 엄격한 직렬 프로토콜·계산 계층, Node 로컬 저장 API, UNO 통합 펌웨어를 구현했다.
 
 Revision 2에서는 Vercel Web Serial 연결 때 UNO 자동 리셋 직후 최초 PING이 유실되는 결함을 수리했다. 포트 개방 뒤 유효 heartbeat를 기다리고, PING만 같은 포트에서 최대 1회 재시도하며, DHT11 MODE ACK 제한을 5초로 분리하고 timeout 뒤 pending read를 재사용한다.
+
+Revision 3에서는 PC마다 다른 COM 번호와 호환 UNO의 USB 브리지 ID를 연결 조건으로 사용하지 않도록 `navigator.serial.requestPort()`의 무필터 호출을 명시했다. 브라우저가 노출한 직렬 장치 전체에서 사용자가 UNO를 선택하며, 연결 뒤 heartbeat·PING·MODE ACK 검증으로 잘못 선택한 장치를 fail-closed 처리한다.
 
 ## OUTPUT
 

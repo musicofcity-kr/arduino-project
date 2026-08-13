@@ -2,13 +2,13 @@
 document: NODE_RESULT
 node: EVALUATE
 verdict: PASS
-revision: 2
+revision: 3
 superseded: false
 evidence_level: V2
-evidence_unit: 42/42
-evidence_e2e: browser-flow-pass+webserial-reset-regression-pass+responsive-390-pass+design-qa-pass
+evidence_unit: 44/44
+evidence_e2e: webserial-broad-picker-regression-pass+webserial-reset-regression-pass
 evidence_build: 1812 modules
-recorded_at: 2026-08-13T12:57:15+09:00
+recorded_at: 2026-08-13T13:09:46+09:00
 ---
 
 # EVALUATE RESULT
@@ -29,6 +29,7 @@ recorded_at: 2026-08-13T12:57:15+09:00
 - 교육과정 코드는 공식 확인 전 draft로 표시했다.
 - 학생 개인정보를 수집하지 않고 서버도 명시적 개인정보 필드를 거부한다.
 - UNO 자동 리셋 동안 성공 상태를 먼저 표시하지 않고 유효 heartbeat와 exact ACK를 순서대로 확인하며, PING 재시도는 같은 포트에서 1회로 제한한다.
+- COM 번호나 USB VID/PID를 고정하지 않고 브라우저가 표시하는 직렬 장치에서 사용자가 UNO를 선택한다. Web Serial API가 없는 환경은 지원되지 않는 상태로 명확히 안내한다.
 - CSS 390px 브라우저 재검증에서 가로 넘침·오류 오버레이·콘솔 경고/오류가 없고, LDR `count` 표시와 demo 저장 차단을 확인했다.
 
 ## PASS 조건과 판정
