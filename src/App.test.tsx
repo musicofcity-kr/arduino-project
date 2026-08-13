@@ -138,6 +138,27 @@ afterEach(() => {
 });
 
 describe('Student Easy Mode protocol boundary', () => {
+  it('requests every browser-visible serial port without COM or USB filters', async () => {
+    const serial = installResponsiveSerial();
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
+
+    expect(serial.requestPort).toHaveBeenCalledTimes(1);
+    expect(serial.requestPort.mock.calls[0]).toEqual([]);
+  });
+
+  it('fails clearly when the current PC or mobile browser has no Web Serial API', () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+
+    expect(screen.getByText('브라우저 확인 필요')).toBeInTheDocument();
+    expect(screen.getByText(/Web Serial을 지원하는 최신 Chrome 또는 Edge/)).toBeInTheDocument();
+    expect(screen.getByText(/Android는 최신 Chrome과 USB OTG가 필요/)).toBeInTheDocument();
+  });
+
   it('waits for a boot heartbeat before sending PING', async () => {
     const serial = installResponsiveSerial(false);
     render(<App />);

@@ -2,20 +2,20 @@
 document: NODE_RESULT
 node: VERIFY
 verdict: PASS
-revision: 2
+revision: 3
 superseded: false
 evidence_level: V2
-evidence_unit: 42/42
-evidence_e2e: browser-flow-pass+webserial-reset-regression-pass+responsive-390-pass+design-qa-pass
+evidence_unit: 44/44
+evidence_e2e: webserial-broad-picker-regression-pass+webserial-reset-regression-pass
 evidence_build: 1812 modules
-recorded_at: 2026-08-13T12:57:15+09:00
+recorded_at: 2026-08-13T13:09:46+09:00
 ---
 
 # VERIFY RESULT
 
 ## INPUT
 
-최종 BUILD 산출물 revision 2.
+최종 BUILD 산출물 revision 3.
 
 ## TASK
 
@@ -23,8 +23,9 @@ protocol parser, ACK/STOP/timeout, velocity/transmittance, 저장 스키마, 실
 
 ## OUTPUT
 
-- `npm test`: 42/42 PASS
+- `npm test`: 44/44 PASS
 - `npm run build`: 1,812 modules transformed
+- Web Serial 포트 선택 회귀: `requestPort()` 1회·인자 0개로 COM/VID/PID 무필터 선택 PASS, API 부재 환경의 지원 안내 PASS
 - Web Serial 회귀: heartbeat 전 PING 0건, 최초 PING 유실 뒤 동일 포트에서 PING 1회 재시도, MODE·STOP exact ACK 후 ready PASS
 - 실제 로컬 API health 및 Experiment Pack 3개 응답 PASS
 - 로컬 production 브라우저: 핵심 화면과 DHT11 연결 버튼 렌더링, 초기 상태 `센서 연결 전`, 오류 오버레이 없음, 콘솔 warning/error 0건

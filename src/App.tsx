@@ -394,12 +394,13 @@ export default function App() {
     const serial = (navigator as Navigator & { serial?: SerialNavigatorLike }).serial;
     if (!serial) {
       setConnectionState('unsupported');
-      setConnectionMessage('이 브라우저에서는 센서 연결을 지원하지 않아요. PC용 Chrome 또는 Edge에서 HTTPS 주소나 localhost로 열어 주세요.');
+      setConnectionMessage('이 브라우저에서는 USB 직렬 연결을 지원하지 않아요. Web Serial을 지원하는 최신 Chrome 또는 Edge에서 HTTPS 주소나 localhost로 열어 주세요. Android는 최신 Chrome과 USB OTG가 필요해요.');
       return;
     }
     try {
       setConnectionState('requesting');
-      setConnectionMessage('목록에서 Arduino UNO를 하나 선택해 주세요.');
+      setConnectionMessage('표시되는 직렬 장치 중 Arduino UNO를 선택해 주세요. COM 번호는 PC마다 달라도 괜찮아요.');
+      // 필터를 의도적으로 생략한다. COM 번호와 USB 브리지 ID는 PC와 호환 보드마다 달라질 수 있다.
       const port = await serial.requestPort();
       await closeSerial();
       portRef.current = port;
@@ -427,7 +428,7 @@ export default function App() {
       if (name === 'NotFoundError') {
         setConnectionMessage('기기 선택이 취소되었어요. 준비되면 연결 버튼을 다시 눌러 주세요.');
       } else if (name === 'SecurityError') {
-        setConnectionMessage('브라우저가 기기 선택을 허용하지 않았어요. 이 Vercel 주소를 Chrome 또는 Edge의 새 탭에서 직접 열고 다시 시도해 주세요.');
+        setConnectionMessage('브라우저가 기기 선택을 허용하지 않았어요. 이 Vercel 주소를 Web Serial 지원 브라우저의 최상위 새 탭에서 직접 열고 다시 시도해 주세요.');
       } else if (name === 'NetworkError' || name === 'InvalidStateError') {
         setConnectionMessage('UNO 포트를 열 수 없어요. Arduino IDE의 시리얼 모니터처럼 COM 포트를 사용하는 프로그램을 닫고 다시 시도해 주세요.');
       } else if (message === 'BOOT_TIMEOUT') {
