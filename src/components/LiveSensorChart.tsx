@@ -96,13 +96,16 @@ interface LiveSensorChartProps {
   history: readonly MeasurementSample[];
   connected: boolean;
   measuring: boolean;
+  stale?: boolean;
 }
 
-export function LiveSensorChart({ experiment, history, connected, measuring }: LiveSensorChartProps) {
+export function LiveSensorChart({ experiment, history, connected, measuring, stale = false }: LiveSensorChartProps) {
   const series = buildLiveChartSeries(experiment, history);
   const stateLabel = series.some((item) => item.source === 'demo')
     ? '예시 데이터'
-    : measuring
+    : measuring && stale
+      ? series.length ? '마지막 측정 기록 · 현재값 아님' : '첫 센서값을 기다리는 중'
+      : measuring
       ? '실시간 수신'
       : series.length
         ? '마지막 측정 기록 · 현재값 아님'
@@ -129,12 +132,17 @@ export function LiveSensorChart({ experiment, history, connected, measuring }: L
             const deltaLabel = item.points.length < 2
               ? '첫 값'
               : `첫 값 대비 ${delta > 0 ? '+' : ''}${delta.toFixed(precision)} ${item.unit}`;
+            const latestLabel = item.source === 'demo'
+              ? '예시'
+              : measuring && !stale
+                ? '현재'
+                : '마지막';
             return (
               <article className={`live-chart-series live-chart-${item.key}`} key={item.key}>
                 <div className="live-chart-series-header">
                   <span>{item.label} ({item.unit})</span>
                   <span>
-                    현재 {item.latest.toFixed(precision)} · 최저 {item.min.toFixed(precision)} · 최고 {item.max.toFixed(precision)} · n={item.points.length}
+                    {latestLabel} {item.latest.toFixed(precision)} · 최저 {item.min.toFixed(precision)} · 최고 {item.max.toFixed(precision)} · n={item.points.length}
                   </span>
                 </div>
                 <svg
@@ -147,7 +155,7 @@ export function LiveSensorChart({ experiment, history, connected, measuring }: L
                 >
                   <title id={titleId}>{item.label} 변화 그래프</title>
                   <desc id={descId}>
-                    {item.unit} 단위, 최저 {item.min.toFixed(precision)}, 최고 {item.max.toFixed(precision)}, 최신 {item.latest.toFixed(precision)}, 최근 {item.points.length}개 시점, {deltaLabel}
+                    {item.unit} 단위, 최저 {item.min.toFixed(precision)}, 최고 {item.max.toFixed(precision)}, {latestLabel} 값 {item.latest.toFixed(precision)}, 최근 {item.points.length}개 시점, {deltaLabel}
                   </desc>
                   <line className="live-chart-grid" x1={X_PADDING} y1={CHART_HEIGHT / 2} x2={CHART_WIDTH - X_PADDING} y2={CHART_HEIGHT / 2} />
                   {item.points.length === 1 ? (

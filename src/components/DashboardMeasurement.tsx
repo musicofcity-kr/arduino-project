@@ -16,6 +16,7 @@ interface DashboardMeasurementProps {
   liveCsvStatus?: string;
   onDownloadLiveCsv: () => void;
   freshnessMessage?: string;
+  measurementStale?: boolean;
 }
 
 export function DashboardMeasurement({
@@ -31,6 +32,7 @@ export function DashboardMeasurement({
   liveCsvStatus,
   onDownloadLiveCsv,
   freshnessMessage,
+  measurementStale = false,
 }: DashboardMeasurementProps) {
   const latestByKey = new Map(samples.map((sample) => [sample.key, sample]));
 
@@ -42,7 +44,7 @@ export function DashboardMeasurement({
           <h2 id="measurement-title">실시간 측정</h2>
         </div>
         <span className={`measurement-status ${measuring ? 'is-live' : ''}`} role="status">
-          <Activity size={14} aria-hidden="true" /> {measuring ? '실시간 수신' : connected ? '측정 준비' : '측정 전'}
+          <Activity size={14} aria-hidden="true" /> {measuring ? (measurementStale ? '현재값 대기' : '실시간 수신') : connected ? '측정 준비' : '측정 전'}
         </span>
       </div>
 
@@ -91,7 +93,7 @@ export function DashboardMeasurement({
       </div>
       {liveCsvStatus && <p className="live-csv-status" role="status">{liveCsvStatus}</p>}
 
-      <LiveSensorChart experiment={experiment} history={history} connected={connected} measuring={measuring} />
+      <LiveSensorChart experiment={experiment} history={history} connected={connected} measuring={measuring} stale={measurementStale} />
     </section>
   );
 }

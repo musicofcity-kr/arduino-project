@@ -2,57 +2,56 @@
 document: NODE_RESULT
 node: BUILD
 verdict: PASS
-revision: 4
+revision: 5
 evidence_level: V2
-evidence_unit: 56/56
-evidence_e2e: local-browser-chart-layout-pass+live-session-csv-regression-pass
+evidence_unit: 61/61
+evidence_e2e: local-browser-smoke-pass+transient-sensor-recovery-regression-pass
 evidence_build: 1815 modules
-recorded_at: 2026-08-13T13:55:32+09:00
+recorded_at: 2026-08-13T14:43:05+09:00
 ---
 
 # BUILD RESULT
 
 ## INPUT
 
-Arduino UNO Web Serial의 연속 센서값을 학생 화면에서 그래프로 확인하고, 현재 측정 세션 전체를 CSV로 내려받는 요구.
+배포 환경의 실제 DHT11 측정 중 간헐적인 센서 읽기 실패 또는 짧은 수신 공백 뒤 앱이 USB 연결을 종료한 USER CHECK 결함.
 
 ## TASK
 
-- DHT11 온도와 상대습도를 단위가 섞이지 않는 두 그래프로 표시했다.
-- HC-SR04 거리와 LDR 원시 상대광 신호는 각각 원시값 그래프로 표시하고 파생값과 혼합하지 않았다.
-- 그래프의 최신값·최저·최고·표본 수·경과 시간·첫 값 대비 변화·출처를 표시했다.
-- 화면 그래프의 최근 24시점/64행 버퍼와 별도로, 실제 측정 세션 CSV를 최대 10,000행까지 보존했다.
-- 실측과 파생 계산의 timestamp·unit·formula·inputs를 long-format CSV로 기록하고 demo/simulation은 제외했다.
-- STOP 뒤 그래프와 CSV는 마지막 기록으로 유지하며, fresh MODE ACK 뒤 새 세션을 시작하도록 경계를 분리했다.
+- 측정 중 센서별로 허용한 일시적 read error만 stale로 처리하고 MODE 단계 또는 알 수 없는 device error는 기존처럼 fail-closed한다.
+- measurement freshness와 heartbeat를 포함한 transport liveness를 분리했다.
+- DHT11 5초, HC-SR04/LDR 3초 공백에는 현재값만 숨기고 포트·STOP·그래프·CSV를 유지한다.
+- transport 단절은 유효 직렬 메시지까지 7초 동안 없거나 reader가 실제 종료된 경우로 분류한다. 비허용 device/protocol 오류는 별도 terminal fail-closed로 닫는다.
+- 숨김 탭에서는 timeout 판정을 멈추고 복귀 뒤 5초 grace를 둔다.
+- ACK timeout 뒤 pending read를 재사용하고 실제 read reject 뒤에는 제거해 중복 reader 경쟁을 막았다.
 
 ## OUTPUT
 
-- `src/components/LiveSensorChart.tsx` — 센서별 실시간 SVG 그래프
-- `src/services/liveSessionCsv.ts` — 세션 CSV 직렬화와 원자적 프레임 상한
-- `src/services/csv.ts` — CRLF·인용·스프레드시트 수식 주입 방어 공용 처리
-- `src/App.tsx` — live session buffer와 다운로드 흐름
-- 반응형·접근성 스타일과 회귀 테스트
+- `src/App.tsx` — recoverable sensor error, stale measurement, transport timeout, reader 경쟁조건 분리
+- `src/App.test.tsx` — 일시 오류·stale 복구·heartbeat-only·transport silence·실제 reader 종료 회귀
+- `src/components/DashboardMeasurement.tsx` — 현재값 대기 상태 표시
+- `src/components/LiveSensorChart.tsx` — stale 중 마지막 기록과 첫 값 대기 상태 구분
 
 ## PASS 조건과 판정
 
 | 조건 | 결과 | 증거 등급 |
 |---|---|---|
-| DHT 두 지표 및 HC/LDR raw-only 그래프 | PASS | V2 |
-| 단위·출처·timestamp·계산 근거 CSV 보존 | PASS | V2 |
-| demo 제외, 빈/비정상 provenance fail-closed | PASS | V2 |
-| STOP·재시작·실패 재시작 세션 경계 | PASS | V2 |
-| 10,000행 경계에서 프레임 원자성 | PASS | V2 |
+| 일시적 DHT11 read error 뒤 같은 포트 자동 복구 | PASS | V2 |
+| 센서 stale에서 현재값 숨김·그래프/CSV 보존 | PASS | V2 |
+| heartbeat-only를 transport 생존으로만 사용 | PASS | V2 |
+| transport silence/reader 종료 분류와 비허용 오류 fail-closed | PASS | V2 |
+| MODE/비허용 device error fail-closed 유지 | PASS | V2 |
 
 ## Negative / Fail-closed 검증
 
-빈 세션, demo-only, 비유한 값, 누락된 provenance를 CSV로 만들지 않는다. 실패한 재시작은 이전 정상 CSV를 지우지 않고, HC-SR04의 raw/derived 한 프레임은 상한에서 반으로 자르지 않는다.
+heartbeat와 device error를 센서 현재값이나 CSV 행으로 저장하지 않는다. stale 값을 현재값으로 재사용하지 않고, fatal transport 오류에서도 마지막 그래프와 CSV만 기록으로 보존한다.
 
 ## FAIL ROUTE 발화 기록
 
 | 판정 | 목적지 | 사유 |
 |---|---|---|
-| REPAIR | BUILD | 초기 구현의 패널 overflow, polyline fill, 세션 기준값 재사용, 실패 재시작 데이터 손실, 상한 프레임 분할을 독립 검토에서 발견해 수리 |
+| REPAIR | BUILD | 실제 USER CHECK에서 단일 센서 read error와 짧은 공백을 USB 단절로 오분류하는 결함을 발견해 revision 5에서 수리 |
 
 ## 한계
 
-로컬 브라우저에서 demo 그래프와 레이아웃을 검증했다. 실제 UNO 연속 수신값의 그래프·CSV 다운로드와 실제 390px 모바일 기기는 USER CHECK에 남긴다.
+자동 회귀와 로컬 production preview는 통과했다. 실제 UNO 장시간 측정에서 간헐 오류 뒤 자동 복구와 CSV 연속성은 USER CHECK에 남긴다.
