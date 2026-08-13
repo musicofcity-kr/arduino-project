@@ -1,7 +1,7 @@
 ---
 document: PROJECT_HANDOFF
 project: Web App-based Integrated Modular Science Inquiry Workbench
-recorded_at: 2026-08-11T13:55:45+09:00
+recorded_at: 2026-08-13T12:16:39+09:00
 workspace: C:\all\Aduino project
 state: USER CHECK
 status: ESCALATE
@@ -29,7 +29,7 @@ evidence_level: V2
 | 브라우저 검증 | 핵심 흐름 PASS, 콘솔 warning/error 0건 |
 | 패키지 검사 | C01~C26 전부 PASS, BLOCKER 0 / WARN 0 |
 | 독립 검토 | blocker/major 0건, BUILD PASS |
-| 실제 장비 검증 | 미실시 |
+| 실제 장비 검증 | UNO/PING·DHT11 PASS, HC-SR04 거리 통신 PASS/속도 미확인, LDR 추후 검증 |
 | Git 증거 | 최신 V3-01 증거를 GitHub `main`에 병합 |
 
 `ESCALATE`는 빌드 실패가 아니라 실제 사람·장비 V3 확인을 기다린다는 뜻이다. 정식 상태 원본은 `STATE.md`, 요구사항 원본은 `PROJECT_SPEC.md`, 노드별 증거는 `docs/BUILD_RESULT.md`, `docs/VERIFY_RESULT.md`, `docs/EVALUATE_RESULT.md`를 따른다.
@@ -185,9 +185,9 @@ node server/index.mjs
 - [x] Arduino CLI를 준비한다.
 - [x] Adafruit `DHT sensor library`와 `Adafruit Unified Sensor`를 설치한다.
 - [x] UNO 보드 대상으로 통합 펌웨어를 컴파일한다.
-- [ ] 실제 UNO에 통합 펌웨어를 업로드한다.
-- [ ] Serial Monitor를 닫아 COM 포트를 해제한다.
-- [ ] Chrome에서 앱을 열고 DHT11을 연결해 연속 온도·습도를 확인한다.
+- [x] 실제 UNO에 통합 펌웨어를 업로드한다.
+- [x] Serial Monitor를 닫아 COM 포트를 해제한다.
+- [x] 실제 UNO 직렬 세션에서 DHT11 연속 온도·습도를 확인한다.
 - [ ] HC-SR04로 거리 변화와 속도 계산을 확인한다.
 - [ ] LDR로 기준값과 상대 투과율을 확인하고 lux로 표시되지 않는지 확인한다.
 - [ ] 각 Pack에서 저장 후 CSV의 raw 값, 단위, source, timestamp, formula, inputs를 화면과 비교한다.
@@ -201,10 +201,10 @@ node server/index.mjs
 | ID | 확인 항목 | 합격 기준 | 현재 |
 |---|---|---|---|
 | V3-01 | 펌웨어 컴파일 | UNO 대상 오류 없이 컴파일 | PASS (2026-08-11) |
-| V3-02 | 펌웨어 업로드 | 실제 UNO 업로드 및 PING ACK | 미확인 |
-| V3-03 | DHT11 | 새 온도·습도 값, 단위, timeout 복구 | 미확인 |
-| V3-04 | HC-SR04 | 거리와 속도 계산, sensor timeout 처리 | 미확인 |
-| V3-05 | LDR | count와 상대 투과율, 기준값 처리 | 미확인 |
+| V3-02 | 펌웨어 업로드 | 실제 UNO 업로드 및 PING ACK | PASS |
+| V3-03 | DHT11 | 새 온도·습도 값, 단위, timeout 복구 | PASS |
+| V3-04 | HC-SR04 | 거리와 속도 계산, sensor timeout 처리 | ESCALATE — 거리·timeout 복구 PASS, 속도 미확인 |
+| V3-05 | LDR | count와 상대 투과율, 기준값 처리 | ESCALATE — 사용자 결정으로 추후 검증 |
 | V3-06 | 저장·CSV | 화면/저장/CSV 값과 provenance 일치 | 미확인 |
 | V3-07 | 학교 PC | 포트 선택, 권한, 재연결, COM 복구 | 미확인 |
 | V3-08 | 학생 흐름 | 초보 학생이 도움 없이 핵심 흐름 완주 | 미확인 |
