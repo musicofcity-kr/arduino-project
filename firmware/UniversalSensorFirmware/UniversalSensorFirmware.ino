@@ -10,7 +10,7 @@
  * - LDR divider: 5V -> LDR -> A0 -> 10 kOhm resistor -> GND
  *
  * Commands are newline terminated: PING, MODE:DHT11, MODE:HC_SR04, MODE:LDR,
- * and STOP.
+ * SET_INTERVAL:<DHT11|HC_SR04|LDR>:<milliseconds>, and STOP.
  * A MODE ACK is emitted only after a fresh valid read. Failed or timed-out reads
  * emit ERROR and never resend a previous measurement.
  */
@@ -35,6 +35,9 @@ char commandBuffer[48];
 uint8_t commandLength = 0;
 unsigned long lastHeartbeatAt = 0;
 unsigned long lastMeasurementAt = 0;
+unsigned long dht11IntervalMs = 2000UL;
+unsigned long hcSr04IntervalMs = 500UL;
+unsigned long ldrIntervalMs = 500UL;
 
 const char *modeName() {
   switch (activeMode) {
@@ -55,6 +58,68 @@ void emitError(const char *code, const char *message) {
 void emitAck(const char *command) {
   Serial.print(F("ACK:"));
   Serial.println(command);
+}
+
+void emitIntervalAck(const char *sensor, unsigned long intervalMs) {
+  Serial.print(F("ACK:INTERVAL:"));
+  Serial.print(sensor);
+  Serial.print(':');
+  Serial.println(intervalMs);
+}
+
+bool parseIntervalMs(const char *text, unsigned long &intervalMs) {
+  if (*text == '\0') return false;
+  unsigned long value = 0;
+  while (*text != '\0') {
+    if (*text < '0' || *text > '9') return false;
+    const unsigned long digit = static_cast<unsigned long>(*text - '0');
+    if (value > (10000UL - digit) / 10UL) return false;
+    value = value * 10UL + digit;
+    text++;
+  }
+  intervalMs = value;
+  return true;
+}
+
+void configureInterval(const char *command) {
+  const char *valueText = nullptr;
+  const char *sensor = nullptr;
+  unsigned long minimumMs = 0;
+  unsigned long *target = nullptr;
+
+  const char dhtPrefix[] = "SET_INTERVAL:DHT11:";
+  const char hcPrefix[] = "SET_INTERVAL:HC_SR04:";
+  const char ldrPrefix[] = "SET_INTERVAL:LDR:";
+  if (strncmp(command, dhtPrefix, strlen(dhtPrefix)) == 0) {
+    valueText = command + strlen(dhtPrefix);
+    sensor = "DHT11";
+    minimumMs = 2000UL;
+    target = &dht11IntervalMs;
+  } else if (strncmp(command, hcPrefix, strlen(hcPrefix)) == 0) {
+    valueText = command + strlen(hcPrefix);
+    sensor = "HC_SR04";
+    minimumMs = 500UL;
+    target = &hcSr04IntervalMs;
+  } else if (strncmp(command, ldrPrefix, strlen(ldrPrefix)) == 0) {
+    valueText = command + strlen(ldrPrefix);
+    sensor = "LDR";
+    minimumMs = 500UL;
+    target = &ldrIntervalMs;
+  }
+
+  unsigned long intervalMs = 0;
+  if (target == nullptr || !parseIntervalMs(valueText, intervalMs) || intervalMs < minimumMs) {
+    emitError("INVALID_INTERVAL", "Use_DHT11_2000-10000_or_HC_SR04|LDR_500-10000_ms");
+    return;
+  }
+  *target = intervalMs;
+  emitIntervalAck(sensor, intervalMs);
+}
+
+unsigned long activeMeasurementIntervalMs() {
+  if (activeMode == MODE_DHT11) return dht11IntervalMs;
+  if (activeMode == MODE_HC_SR04) return hcSr04IntervalMs;
+  return ldrIntervalMs;
 }
 
 void emitHeartbeat() {
@@ -186,12 +251,14 @@ void handleCommand(const char *command) {
     activateHcSr04();
   } else if (strcmp(command, "MODE:LDR") == 0) {
     activateLdr();
+  } else if (strncmp(command, "SET_INTERVAL:", 13) == 0) {
+    configureInterval(command);
   } else if (strcmp(command, "STOP") == 0) {
     activeMode = MODE_NONE;
     lastMeasurementAt = millis();
     emitAck("STOP");
   } else {
-    emitError("UNKNOWN_COMMAND", "Use_PING,STOP_or_MODE:DHT11|HC_SR04|LDR");
+    emitError("UNKNOWN_COMMAND", "Use_PING,STOP,MODE_or_SET_INTERVAL");
   }
 }
 
@@ -231,7 +298,7 @@ void loop() {
     emitHeartbeat();
   }
 
-  const unsigned long interval = activeMode == MODE_DHT11 ? 2000UL : 500UL;
+  const unsigned long interval = activeMeasurementIntervalMs();
   if (activeMode != MODE_NONE && now - lastMeasurementAt >= interval) {
     lastMeasurementAt = now;
     if (activeMode == MODE_DHT11) emitDht11Measurement();

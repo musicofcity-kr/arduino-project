@@ -6,7 +6,7 @@ const sketchUrl = new URL("./UniversalSensorFirmware/UniversalSensorFirmware.ino
 
 test("firmware source exposes the required command and response contract", async () => {
   const source = await readFile(sketchUrl, "utf8");
-  for (const token of ["PING", "MODE:DHT11", "MODE:HC_SR04", "MODE:LDR", "STOP", "ACK:", "ERROR:", "heartbeat", "measurement"]) {
+  for (const token of ["PING", "MODE:DHT11", "MODE:HC_SR04", "MODE:LDR", "SET_INTERVAL:", "ACK:INTERVAL:", "STOP", "ACK:", "ERROR:", "heartbeat", "measurement"]) {
     assert.match(source, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   assert.match(source, /pulseIn\(HC_ECHO_PIN, HIGH, HC_TIMEOUT_US\)/);
@@ -27,6 +27,16 @@ test("firmware source exposes the required command and response contract", async
   assert.match(source, /\\"sensor\\":\\"ldr\\"/);
   assert.match(source, /\\"metric\\":\\"relativeLight\\"/);
   assert.match(source, /\\"unit\\":\\"count\\"/);
+});
+
+test("measurement interval settings are bounded per sensor and acknowledged exactly", async () => {
+  const source = await readFile(sketchUrl, "utf8");
+  assert.match(source, /minimumMs = 2000UL;/);
+  assert.match(source, /minimumMs = 500UL;/);
+  assert.match(source, /value > \(10000UL - digit\) \/ 10UL/);
+  assert.match(source, /emitError\("INVALID_INTERVAL"/);
+  assert.match(source, /emitIntervalAck\(sensor, intervalMs\)/);
+  assert.match(source, /activeMeasurementIntervalMs\(\)/);
 });
 
 test("STOP disables measurements before acknowledging the command", async () => {

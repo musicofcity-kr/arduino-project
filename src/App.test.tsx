@@ -39,6 +39,8 @@ function installResponsiveSerial(
   measurementModeDelayMs = 0,
   sensorMode: 'DHT11' | 'HC_SR04' = 'DHT11',
   failModeAt = 0,
+  failIntervalAt = 0,
+  intervalAckOverride = '',
 ) {
   const queued: Uint8Array[] = initialHeartbeat
     ? [textEncoder.encode('{"type":"heartbeat","timestampMs":0}\n')]
@@ -46,6 +48,7 @@ function installResponsiveSerial(
   const pending: Array<(result: { value?: Uint8Array; done: boolean }) => void> = [];
   const writes: string[] = [];
   let modeCount = 0;
+  let intervalCount = 0;
   let inputEnded = false;
   const enqueue = (line: string) => {
     const value = textEncoder.encode(`${line}\n`);
@@ -74,6 +77,12 @@ function installResponsiveSerial(
       const command = new TextDecoder().decode(value).trim();
       writes.push(`${command}\n`);
       if (command === 'PING') enqueue('ACK:PING');
+      else if (command.startsWith('SET_INTERVAL:')) {
+        intervalCount += 1;
+        if (intervalCount === failIntervalAt) enqueue('ERROR:INVALID_INTERVAL:test failure');
+        else if (intervalAckOverride) enqueue(intervalAckOverride);
+        else enqueue(`ACK:INTERVAL:${command.slice('SET_INTERVAL:'.length)}`);
+      }
       else if (command === `MODE:${sensorMode}`) {
         modeCount += 1;
         if (modeCount === failModeAt) {
@@ -241,13 +250,21 @@ describe('Student Easy Mode protocol boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
     await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
     expect(screen.getByText('UNO 응답 확인 중')).toBeInTheDocument();
+    expect(screen.getByText('설정 확인 중')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /기기 없이 데모 데이터 보기/ })).toBeDisabled();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
       for (let index = 0; index < 8; index += 1) await Promise.resolve();
     });
     expect(screen.getByText('측정 중')).toBeInTheDocument();
-    expect(serial.writes).toEqual(['PING\n', 'MODE:DHT11\n', 'STOP\n', 'MODE:DHT11\n']);
+    expect(serial.writes).toEqual([
+      'PING\n',
+      'MODE:DHT11\n',
+      'STOP\n',
+      'SET_INTERVAL:DHT11:2000\n',
+      'MODE:DHT11\n',
+    ]);
 
     fireEvent.click(screen.getByRole('button', { name: /측정 멈추기/ }));
     await act(async () => { for (let index = 0; index < 8; index += 1) await Promise.resolve(); });
@@ -270,6 +287,7 @@ describe('Student Easy Mode protocol boundary', () => {
       'ACK:PING',
       'ACK:MODE:DHT11',
       'ACK:STOP',
+      'ACK:INTERVAL:DHT11:2000',
       '{"type":"measurement","sensor":"dht11","timestampMs":1,"values":[{"metric":"temperature","value":"23","unit":"C"}]}',
       'ACK:MODE:DHT11',
       '{"type":"measurement","sensor":"dht11","timestampMs":2,"values":[{"metric":"temperature","value":"23","unit":"C"}]}',
@@ -294,7 +312,207 @@ describe('Student Easy Mode protocol boundary', () => {
     expect(container.querySelector('.measurement-card .source-real')).toBeNull();
     expect(screen.getByText('데모 데이터입니다. 실제 센서 측정 결과가 아니에요.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '현재 결과 저장' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(0행\)/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /측정 CSV 받기 \(0행\)/ })).toBeDisabled();
+  });
+
+  it('offers sensor-safe interval presets and resets the default when the sensor changes', () => {
+    render(<App />);
+
+    const dhtInterval = screen.getByLabelText('얼마마다 측정할까요?') as HTMLSelectElement;
+    expect(Array.from(dhtInterval.options, (option) => option.value)).toEqual(['2000', '5000', '10000']);
+    expect(dhtInterval.value).toBe('2000');
+    expect(Array.from((screen.getByLabelText('얼마 동안 측정할까요?') as HTMLSelectElement).options, (option) => option.value))
+      .toEqual(['0', '30000', '60000', '180000', '300000', '600000']);
+
+    fireEvent.click(screen.getByRole('button', { name: /거리와 운동 탐구 선택/ }));
+    const distanceInterval = screen.getByLabelText('얼마마다 측정할까요?') as HTMLSelectElement;
+    expect(Array.from(distanceInterval.options, (option) => option.value)).toEqual(['500', '1000', '2000', '5000', '10000']);
+    expect(distanceInterval.value).toBe('500');
+  });
+
+  it('applies the selected device interval before MODE and locks timing while measuring', async () => {
+    const serial = installResponsiveSerial();
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('얼마마다 측정할까요?'), { target: { value: '5000' } });
+    fireEvent.change(screen.getByLabelText('얼마 동안 측정할까요?'), { target: { value: '30000' } });
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    expect(await screen.findByText('측정 중')).toBeInTheDocument();
+
+    expect(serial.writes.slice(-2)).toEqual(['SET_INTERVAL:DHT11:5000\n', 'MODE:DHT11\n']);
+    expect(screen.getByLabelText('얼마마다 측정할까요?')).toBeDisabled();
+    expect(screen.getByLabelText('얼마 동안 측정할까요?')).toBeDisabled();
+    expect(screen.getByRole('timer')).toHaveTextContent(/남은 시간 00:(29|30)/);
+  });
+
+  it('fails closed without starting a run when UNO rejects the interval', async () => {
+    const serial = installResponsiveSerial(true, 0, 'DHT11', 0, 1);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+
+    expect(await screen.findByText('연결 확인 필요')).toBeInTheDocument();
+    expect(screen.getByText(/최신 통합 펌웨어를 업로드/)).toBeInTheDocument();
+    expect(serial.writes.filter((command) => command === 'MODE:DHT11\n')).toHaveLength(1);
+    expect(serial.writes.at(-1)).toBe('SET_INTERVAL:DHT11:2000\n');
+    expect(screen.getByRole('button', { name: /측정 CSV 받기 \(0행\)/ })).toBeDisabled();
+  });
+
+  it('rejects an interval ACK for another sensor instead of starting MODE', async () => {
+    vi.useFakeTimers();
+    const serial = installResponsiveSerial(true, 0, 'DHT11', 0, 0, 'ACK:INTERVAL:HC_SR04:2000');
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    await act(async () => { for (let index = 0; index < 12; index += 1) await Promise.resolve(); });
+    expect(screen.getByText('센서 준비 완료')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+      for (let index = 0; index < 12; index += 1) await Promise.resolve();
+    });
+
+    expect(screen.getByText('연결 확인 필요')).toBeInTheDocument();
+    expect(serial.writes.filter((command) => command === 'MODE:DHT11\n')).toHaveLength(1);
+    expect(serial.writes.at(-1)).toBe('SET_INTERVAL:DHT11:2000\n');
+  });
+
+  it('keeps the previous graph and CSV when the next interval setting is rejected', async () => {
+    const serial = installResponsiveSerial(true, 0, 'DHT11', 0, 2);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    expect(await screen.findByText('측정 중')).toBeInTheDocument();
+    await act(async () => {
+      serial.enqueue('{"type":"measurement","sensor":"dht11","timestampMs":1000,"values":[{"metric":"temperature","value":23.1,"unit":"C"},{"metric":"humidity","value":50.2,"unit":"%"}]}');
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /측정 멈추기/ }));
+    expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    expect(await screen.findByText('연결 확인 필요')).toBeInTheDocument();
+    expect(screen.getByTestId('live-chart-temperature')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /직접 멈춘 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+  });
+
+  it('auto-stops a timed run exactly once while heartbeat keeps the same port alive', async () => {
+    vi.useFakeTimers();
+    const serial = installResponsiveSerial();
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('얼마 동안 측정할까요?'), { target: { value: '30000' } });
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    await act(async () => { for (let index = 0; index < 12; index += 1) await Promise.resolve(); });
+    expect(screen.getByText('센서 준비 완료')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    await act(async () => { for (let index = 0; index < 12; index += 1) await Promise.resolve(); });
+    expect(screen.getByText('측정 중')).toBeInTheDocument();
+
+    await act(async () => {
+      serial.enqueue('{"type":"measurement","sensor":"dht11","timestampMs":1000,"values":[{"metric":"temperature","value":23.1,"unit":"C"},{"metric":"humidity","value":50.2,"unit":"%"}]}');
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    });
+    for (let elapsed = 2_000; elapsed <= 30_000; elapsed += 2_000) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+        serial.enqueue(`{"type":"heartbeat","timestampMs":${elapsed}}`);
+        for (let index = 0; index < 8; index += 1) await Promise.resolve();
+      });
+    }
+
+    expect(screen.getByText('센서 준비 완료')).toBeInTheDocument();
+    expect(screen.getAllByText(/30초 측정.*완료/).length).toBeGreaterThan(0);
+    expect(serial.writes.filter((command) => command === 'STOP\n')).toHaveLength(2);
+    expect(serial.port.close).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /완료한 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+  });
+
+  it('does not call a zero-row timed run complete', async () => {
+    vi.useFakeTimers();
+    const serial = installResponsiveSerial();
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('얼마 동안 측정할까요?'), { target: { value: '30000' } });
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    await act(async () => { for (let index = 0; index < 12; index += 1) await Promise.resolve(); });
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    await act(async () => { for (let index = 0; index < 12; index += 1) await Promise.resolve(); });
+
+    for (let elapsed = 2_000; elapsed <= 30_000; elapsed += 2_000) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+        serial.enqueue(`{"type":"heartbeat","timestampMs":${elapsed}}`);
+        for (let index = 0; index < 8; index += 1) await Promise.resolve();
+      });
+    }
+
+    expect(screen.getByText(/시간이 끝났지만 유효한 센서 측정값은 없어요/)).toBeInTheDocument();
+    expect(screen.getByText(/30초 시간 종료 · 유효 측정값 없음/)).toBeInTheDocument();
+    expect(screen.queryByText(/30초 측정이 완료/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /중단된 측정 CSV 받기 \(0행\)/ })).toBeDisabled();
+  });
+
+  it('excludes frames received after the absolute deadline before automatic STOP runs', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-13T00:00:00.000Z'));
+    const serial = installResponsiveSerial();
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('얼마 동안 측정할까요?'), { target: { value: '30000' } });
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    await act(async () => { for (let index = 0; index < 12; index += 1) await Promise.resolve(); });
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    await act(async () => { for (let index = 0; index < 12; index += 1) await Promise.resolve(); });
+    await act(async () => {
+      serial.enqueue('{"type":"measurement","sensor":"dht11","timestampMs":1000,"values":[{"metric":"temperature","value":23.1,"unit":"C"},{"metric":"humidity","value":50.2,"unit":"%"}]}');
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    });
+
+    vi.setSystemTime(new Date('2026-08-13T00:00:31.000Z'));
+    await act(async () => {
+      serial.enqueue('{"type":"measurement","sensor":"dht11","timestampMs":31000,"values":[{"metric":"temperature","value":99,"unit":"C"},{"metric":"humidity","value":99,"unit":"%"}]}');
+      for (let index = 0; index < 16; index += 1) await Promise.resolve();
+    });
+
+    expect(screen.getByText('센서 준비 완료')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /완료한 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+    expect(screen.queryByText('99.0')).not.toBeInTheDocument();
+  });
+
+  it('sends only one run STOP when manual stop meets the automatic deadline', async () => {
+    vi.useFakeTimers();
+    const serial = installResponsiveSerial();
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('얼마 동안 측정할까요?'), { target: { value: '30000' } });
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    await act(async () => { for (let index = 0; index < 12; index += 1) await Promise.resolve(); });
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    await act(async () => { for (let index = 0; index < 12; index += 1) await Promise.resolve(); });
+
+    for (let elapsed = 2_000; elapsed <= 28_000; elapsed += 2_000) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+        serial.enqueue(`{"type":"heartbeat","timestampMs":${elapsed}}`);
+        for (let index = 0; index < 6; index += 1) await Promise.resolve();
+      });
+    }
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_999); });
+    fireEvent.click(screen.getByRole('button', { name: /측정 멈추기/ }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+      for (let index = 0; index < 12; index += 1) await Promise.resolve();
+    });
+
+    expect(screen.getByText('센서 준비 완료')).toBeInTheDocument();
+    expect(serial.writes.filter((command) => command === 'STOP\n')).toHaveLength(2);
   });
 
   it('graphs both DHT11 raw metrics and keeps the live CSV session beyond the chart buffer', async () => {
@@ -324,7 +542,7 @@ describe('Student Easy Mode protocol boundary', () => {
     expect(screen.getByTestId('live-chart-temperature')).toBeInTheDocument();
     expect(screen.getByTestId('live-chart-humidity')).toBeInTheDocument();
     expect(screen.getAllByText(/n=24/)).toHaveLength(2);
-    const liveCsvButton = screen.getByRole('button', { name: /현재 측정 CSV 받기 \(66행\)/ });
+    const liveCsvButton = screen.getByRole('button', { name: /측정 CSV 받기 \(66행\)/ });
     expect(liveCsvButton).toBeEnabled();
 
     const createObjectUrl = vi.fn(() => 'blob:live-session');
@@ -339,12 +557,12 @@ describe('Student Easy Mode protocol boundary', () => {
     expect(anchorClick).toHaveBeenCalledTimes(1);
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:live-session');
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(screen.getByText('66행의 현재 측정 CSV를 만들었어요.')).toBeInTheDocument();
+    expect(screen.getByText('66행의 이번 측정 CSV를 만들었어요.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /측정 멈추기/ }));
     expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
     expect(screen.getByText(/마지막 측정 기록 · 현재값 아님/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(66행\)/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /측정 CSV 받기 \(66행\)/ })).toBeEnabled();
   });
 
   it('keeps the same DHT11 port, graph, and live CSV after one recoverable read error', async () => {
@@ -361,7 +579,7 @@ describe('Student Easy Mode protocol boundary', () => {
       for (let index = 0; index < 8; index += 1) await Promise.resolve();
     });
     expect(screen.getByTestId('live-chart-temperature')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /측정 CSV 받기 \(2행\)/ })).toBeEnabled();
 
     await act(async () => {
       serial.enqueue('ERROR:DHT11_INVALID_READ:Fresh_read_failed_no_stale_value_sent');
@@ -370,7 +588,7 @@ describe('Student Easy Mode protocol boundary', () => {
     expect(screen.getByText('측정 중')).toBeInTheDocument();
     expect(screen.queryByText(/측정 중 연결이 끊겼어요/)).not.toBeInTheDocument();
     expect(screen.getByTestId('live-chart-temperature')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /측정 CSV 받기 \(2행\)/ })).toBeEnabled();
     expect(serial.requestPort).toHaveBeenCalledTimes(1);
     expect(serial.port.open).toHaveBeenCalledTimes(1);
     expect(serial.port.close).not.toHaveBeenCalled();
@@ -380,10 +598,50 @@ describe('Student Easy Mode protocol boundary', () => {
       for (let index = 0; index < 8; index += 1) await Promise.resolve();
     });
     expect(screen.getAllByText(/n=2/)).toHaveLength(2);
-    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(4행\)/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /측정 CSV 받기 \(4행\)/ })).toBeEnabled();
     expect(serial.requestPort).toHaveBeenCalledTimes(1);
     expect(serial.port.open).toHaveBeenCalledTimes(1);
     expect(serial.port.close).not.toHaveBeenCalled();
+  });
+
+  it('marks an active run interrupted when the user disconnects', async () => {
+    const serial = installResponsiveSerial();
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    expect(await screen.findByText('측정 중')).toBeInTheDocument();
+    await act(async () => {
+      serial.enqueue('{"type":"measurement","sensor":"dht11","timestampMs":1000,"values":[{"metric":"temperature","value":23.1,"unit":"C"},{"metric":"humidity","value":50.2,"unit":"%"}]}');
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /연결 해제/ }));
+    await act(async () => { for (let index = 0; index < 8; index += 1) await Promise.resolve(); });
+
+    expect(screen.getByRole('button', { name: /중단된 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+    expect(serial.port.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a manually stopped run classified after the port is disconnected', async () => {
+    const serial = installResponsiveSerial();
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    expect(await screen.findByText('측정 중')).toBeInTheDocument();
+    await act(async () => {
+      serial.enqueue('{"type":"measurement","sensor":"dht11","timestampMs":1000,"values":[{"metric":"temperature","value":23.1,"unit":"C"},{"metric":"humidity","value":50.2,"unit":"%"}]}');
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /측정 멈추기/ }));
+    expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /연결 해제/ }));
+    await act(async () => { for (let index = 0; index < 8; index += 1) await Promise.resolve(); });
+
+    expect(screen.getByRole('button', { name: /직접 멈춘 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+    expect(serial.port.close).toHaveBeenCalledTimes(1);
   });
 
   it('ends on SERIAL_CLOSED while preserving the last graph and live CSV', async () => {
@@ -400,7 +658,7 @@ describe('Student Easy Mode protocol boundary', () => {
       for (let index = 0; index < 8; index += 1) await Promise.resolve();
     });
     expect(screen.getByTestId('live-chart-temperature')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /측정 CSV 받기 \(2행\)/ })).toBeEnabled();
 
     await act(async () => {
       serial.endInput();
@@ -412,7 +670,7 @@ describe('Student Easy Mode protocol boundary', () => {
     expect(screen.getByText(/수신 오류: SERIAL_CLOSED/)).toBeInTheDocument();
     expect(screen.getByText(/마지막 측정 기록 · 현재값 아님/)).toBeInTheDocument();
     expect(screen.getByTestId('live-chart-temperature')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /측정 CSV 받기 \(2행\)/ })).toBeEnabled();
     expect(serial.requestPort).toHaveBeenCalledTimes(1);
     expect(serial.port.open).toHaveBeenCalledTimes(1);
     expect(serial.reader.cancel).toHaveBeenCalledTimes(1);
@@ -433,11 +691,11 @@ describe('Student Easy Mode protocol boundary', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: /측정 멈추기/ }));
     expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /측정 CSV 받기 \(2행\)/ })).toBeEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
     expect(await screen.findByText('연결 확인 필요')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /측정 CSV 받기 \(2행\)/ })).toBeEnabled();
     expect(screen.getByText(/마지막 측정 기록 · 현재값 아님/)).toBeInTheDocument();
   });
 
@@ -454,7 +712,7 @@ describe('Student Easy Mode protocol boundary', () => {
       serial.enqueue('{"type":"measurement","sensor":"hc-sr04","timestampMs":1500,"values":[{"metric":"distance","value":18,"unit":"cm"}]}');
       for (let index = 0; index < 12; index += 1) await Promise.resolve();
     });
-    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(3행\)/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /측정 CSV 받기 \(3행\)/ })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: /측정 멈추기/ }));
     expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
 
@@ -464,7 +722,7 @@ describe('Student Easy Mode protocol boundary', () => {
       serial.enqueue('{"type":"measurement","sensor":"hc-sr04","timestampMs":2000,"values":[{"metric":"distance","value":17,"unit":"cm"}]}');
       for (let index = 0; index < 8; index += 1) await Promise.resolve();
     });
-    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(1행\)/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /측정 CSV 받기 \(1행\)/ })).toBeEnabled();
   });
 
   it('builds exact provenance-preserving payloads for all three packs', () => {
@@ -533,7 +791,7 @@ describe('Student Easy Mode protocol boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
     expect(await screen.findByText('측정 중')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /측정 멈추기/ }));
-    expect(await screen.findByText('측정을 멈췄어요. 다시 시작하면 센서 모드 ACK를 새로 확인합니다.')).toBeInTheDocument();
+    expect(await screen.findByText('측정을 멈췄지만 유효한 센서 측정값은 없어요. 배선과 센서를 확인해 주세요.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
     expect(await screen.findByText('측정 중')).toBeInTheDocument();
@@ -541,8 +799,10 @@ describe('Student Easy Mode protocol boundary', () => {
       'PING\n',
       'MODE:DHT11\n',
       'STOP\n',
+      'SET_INTERVAL:DHT11:2000\n',
       'MODE:DHT11\n',
       'STOP\n',
+      'SET_INTERVAL:DHT11:2000\n',
       'MODE:DHT11\n',
     ]);
   });
@@ -583,7 +843,7 @@ describe('Student Easy Mode protocol boundary', () => {
     });
     expect(screen.getAllByText('실시간 수신')).toHaveLength(2);
     expect(screen.queryByText(/센서는 연결되어 있고 새 측정값을 기다리고 있어요/)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /측정 CSV 받기 \(2행\)/ })).toBeEnabled();
     expect(serial.requestPort).toHaveBeenCalledTimes(1);
     expect(serial.port.open).toHaveBeenCalledTimes(1);
     expect(serial.port.close).not.toHaveBeenCalled();
@@ -597,6 +857,8 @@ describe('Student Easy Mode protocol boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
     await act(async () => { for (let index = 0; index < 8; index += 1) await Promise.resolve(); });
     fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    await act(async () => { for (let index = 0; index < 12; index += 1) await Promise.resolve(); });
+    expect(screen.getByText('측정 중')).toBeInTheDocument();
     await act(async () => {
       serial.enqueue('{"type":"measurement","sensor":"dht11","timestampMs":1000,"values":[{"metric":"temperature","value":23.1,"unit":"C"},{"metric":"humidity","value":50.2,"unit":"%"}]}');
       for (let index = 0; index < 8; index += 1) await Promise.resolve();
@@ -613,7 +875,7 @@ describe('Student Easy Mode protocol boundary', () => {
     expect(screen.getByText('현재값 대기')).toBeInTheDocument();
     expect(screen.getByText(/센서는 연결되어 있고 새 측정값을 기다리고 있어요/)).toBeInTheDocument();
     expect(screen.getByText(/마지막 측정 기록 · 현재값 아님/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /측정 CSV 받기 \(2행\)/ })).toBeEnabled();
     expect(serial.port.close).not.toHaveBeenCalled();
   });
 
@@ -625,6 +887,8 @@ describe('Student Easy Mode protocol boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
     await act(async () => { for (let index = 0; index < 8; index += 1) await Promise.resolve(); });
     fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    await act(async () => { for (let index = 0; index < 12; index += 1) await Promise.resolve(); });
+    expect(screen.getByText('측정 중')).toBeInTheDocument();
     await act(async () => {
       serial.enqueue('{"type":"measurement","sensor":"dht11","timestampMs":1000,"values":[{"metric":"temperature","value":23.1,"unit":"C"},{"metric":"humidity","value":50.2,"unit":"%"}]}');
       for (let index = 0; index < 8; index += 1) await Promise.resolve();
@@ -636,7 +900,7 @@ describe('Student Easy Mode protocol boundary', () => {
     expect(screen.getByText(/heartbeat도 7초 동안 받지 못해/)).toBeInTheDocument();
     expect(screen.getByText(/측정 오류: TRANSPORT_TIMEOUT/)).toBeInTheDocument();
     expect(screen.getByText(/마지막 측정 기록 · 현재값 아님/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /측정 CSV 받기 \(2행\)/ })).toBeEnabled();
     expect(serial.reader.cancel).toHaveBeenCalledTimes(1);
     expect(serial.port.close).toHaveBeenCalledTimes(1);
   });

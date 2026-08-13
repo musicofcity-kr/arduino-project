@@ -22,6 +22,7 @@ describe("universal protocol", () => {
     ["HEARTBEAT:120", "heartbeat"],
     ["MODE:HC_SR04", "mode"],
     ["ACK:MODE:HC_SR04", "ack"],
+    ["ACK:INTERVAL:HC_SR04:1000", "ack"],
     ["STOP", "stop"],
     ["ACK:STOP", "ack"],
     ["ERROR:SENSOR_TIMEOUT:no echo", "error"],
@@ -38,6 +39,15 @@ describe("universal protocol", () => {
     const invalidModeAck = parseProtocolLine("ACK:MODE:UNKNOWN_SENSOR");
     expect(invalidModeAck.ok).toBe(false);
     if (!invalidModeAck.ok) expect(invalidModeAck.error.code).toBe("INVALID_SENSOR");
+  });
+
+  it("parses an exact sensor interval acknowledgement", () => {
+    expect(parseProtocolLine("ACK:INTERVAL:DHT11:5000")).toEqual({
+      ok: true,
+      message: { kind: "ack", command: "INTERVAL", mode: "dht11", intervalMs: 5000 },
+    });
+    expect(parseProtocolLine("ACK:INTERVAL:UNKNOWN:5000").ok).toBe(false);
+    expect(parseProtocolLine("ACK:INTERVAL:DHT11:0").ok).toBe(false);
   });
 
   it("parses a complete measurement and preserves raw provenance", () => {

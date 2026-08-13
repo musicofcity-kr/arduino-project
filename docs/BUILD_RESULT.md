@@ -2,56 +2,58 @@
 document: NODE_RESULT
 node: BUILD
 verdict: PASS
-revision: 5
+revision: 6
 evidence_level: V2
-evidence_unit: 61/61
-evidence_e2e: local-browser-smoke-pass+transient-sensor-recovery-regression-pass
-evidence_build: 1815 modules
-recorded_at: 2026-08-13T14:43:05+09:00
+evidence_unit: 79/79
+evidence_e2e: local-production-browser-1280+390-pass+timing-boundary-regression-pass+uno-compile-pass
+evidence_build: 1816 modules
+recorded_at: 2026-08-13T15:57:00+09:00
 ---
 
 # BUILD RESULT
 
 ## INPUT
 
-배포 환경의 실제 DHT11 측정 중 간헐적인 센서 읽기 실패 또는 짧은 수신 공백 뒤 앱이 USB 연결을 종료한 USER CHECK 결함.
+고정 센서 주기 대신 학생이 웹앱에서 실제 측정 간격과 총 측정시간을 안전하게 선택하고, 그래프·CSV·STOP 경계까지 같은 설정으로 추적하려는 USER CHECK 요청.
 
 ## TASK
 
-- 측정 중 센서별로 허용한 일시적 read error만 stale로 처리하고 MODE 단계 또는 알 수 없는 device error는 기존처럼 fail-closed한다.
-- measurement freshness와 heartbeat를 포함한 transport liveness를 분리했다.
-- DHT11 5초, HC-SR04/LDR 3초 공백에는 현재값만 숨기고 포트·STOP·그래프·CSV를 유지한다.
-- transport 단절은 유효 직렬 메시지까지 7초 동안 없거나 reader가 실제 종료된 경우로 분류한다. 비허용 device/protocol 오류는 별도 terminal fail-closed로 닫는다.
-- 숨김 탭에서는 timeout 판정을 멈추고 복귀 뒤 5초 grace를 둔다.
-- ACK timeout 뒤 pending read를 재사용하고 실제 read reject 뒤에는 제거해 중복 reader 경쟁을 막았다.
+- 펌웨어에 `SET_INTERVAL:<sensor>:<ms>`와 정확한 `ACK:INTERVAL:<sensor>:<ms>` 계약을 추가했다.
+- DHT11 2,000~10,000ms, HC-SR04/LDR 500~10,000ms를 펌웨어에서 강제하고 UI는 검증된 preset만 제공한다.
+- interval ACK 성공 뒤에만 MODE와 새 run을 시작하며 설정 실패 시 기존 그래프·CSV를 보존한다.
+- 절대 deadline 뒤 프레임은 기록 전 제외하고, 수동/자동 STOP 경합에도 run STOP을 한 번만 전송한다.
+- 요청 간격에 맞춰 sensor freshness를 동적으로 조정하되 7초 transport heartbeat 계약은 분리 유지했다.
+- CSV에 requested interval/duration, duration mode, startedAt/endedAt, stopReason과 원시 device timestamp를 함께 기록했다.
+- 학생 UI에 44px native select, visible configuring/stopping 상태, countdown, 완료/직접 멈춤/중단 CSV 문구를 추가했다.
 
 ## OUTPUT
 
-- `src/App.tsx` — recoverable sensor error, stale measurement, transport timeout, reader 경쟁조건 분리
-- `src/App.test.tsx` — 일시 오류·stale 복구·heartbeat-only·transport silence·실제 reader 종료 회귀
-- `src/components/DashboardMeasurement.tsx` — 현재값 대기 상태 표시
-- `src/components/LiveSensorChart.tsx` — stale 중 마지막 기록과 첫 값 대기 상태 구분
+- `firmware/UniversalSensorFirmware/UniversalSensorFirmware.ino`, `firmware/README.md`, firmware contract test
+- `src/domain/measurementTiming.ts`, protocol parser와 domain tests
+- `src/App.tsx`, `src/App.test.tsx`, `DashboardMeasurement.tsx`, `styles.css`
+- `src/services/liveSessionCsv.ts`와 serializer tests
 
 ## PASS 조건과 판정
 
 | 조건 | 결과 | 증거 등급 |
 |---|---|---|
-| 일시적 DHT11 read error 뒤 같은 포트 자동 복구 | PASS | V2 |
-| 센서 stale에서 현재값 숨김·그래프/CSV 보존 | PASS | V2 |
-| heartbeat-only를 transport 생존으로만 사용 | PASS | V2 |
-| transport silence/reader 종료 분류와 비허용 오류 fail-closed | PASS | V2 |
-| MODE/비허용 device error fail-closed 유지 | PASS | V2 |
+| 센서별 간격 범위와 exact ACK 뒤에만 run 시작 | PASS | V2 |
+| 예약 deadline 이후 데이터 배제·STOP 1회 | PASS | V2 |
+| 0행 비완료, 실패 시 이전 그래프·CSV 보존 | PASS | V2 |
+| 요청/실제 시각·출처·종료사유 CSV 추적 | PASS | V2 |
+| 1280px·390px 학생 UI와 접근 가능한 상태 표현 | PASS | V2 |
+| UNO target compile 8,340 bytes / SRAM 814 bytes | PASS | V2 |
 
 ## Negative / Fail-closed 검증
 
-heartbeat와 device error를 센서 현재값이나 CSV 행으로 저장하지 않는다. stale 값을 현재값으로 재사용하지 않고, fatal transport 오류에서도 마지막 그래프와 CSV만 기록으로 보존한다.
+다른 센서나 다른 ms의 INTERVAL ACK, 범위 밖 값, MODE/STOP 실패, 유효값 0행을 성공으로 통과시키지 않는다. 예약 종료시각 이후 프레임, heartbeat, device error는 측정 CSV 행이 아니다. HC 속도는 요청 주기가 아니라 두 원시 device timestamp의 실제 차를 사용한다.
 
 ## FAIL ROUTE 발화 기록
 
 | 판정 | 목적지 | 사유 |
 |---|---|---|
-| REPAIR | BUILD | 실제 USER CHECK에서 단일 센서 read error와 짧은 공백을 USB 단절로 오분류하는 결함을 발견해 revision 5에서 수리 |
+| REPAIR | BUILD | USER CHECK에서 승인된 측정 주기·총 시간 UI가 펌웨어·CSV 계약까지 변경하므로 revision 6 BUILD로 회귀 |
 
 ## 한계
 
-자동 회귀와 로컬 production preview는 통과했다. 실제 UNO 장시간 측정에서 간헐 오류 뒤 자동 복구와 CSV 연속성은 USER CHECK에 남긴다.
+새 펌웨어는 UNO target compile까지만 확인했다. 실제 UNO 업로드 후 선택한 주기와 예약 종료의 장시간 V3 실측은 USER CHECK에 남긴다.
