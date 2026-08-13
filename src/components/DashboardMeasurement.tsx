@@ -1,5 +1,6 @@
-import { Activity, Play, Square, Waves } from 'lucide-react';
+import { Activity, Download, Play, Square } from 'lucide-react';
 import type { MeasurementSample, StudentExperiment } from './types';
+import { LiveSensorChart } from './LiveSensorChart';
 import { SourceBadge } from './SourceBadge';
 
 interface DashboardMeasurementProps {
@@ -11,6 +12,9 @@ interface DashboardMeasurementProps {
   onStart: () => void;
   onStop: () => void;
   onDemo: () => void;
+  liveCsvCount: number;
+  liveCsvStatus?: string;
+  onDownloadLiveCsv: () => void;
   freshnessMessage?: string;
 }
 
@@ -23,19 +27,12 @@ export function DashboardMeasurement({
   onStart,
   onStop,
   onDemo,
+  liveCsvCount,
+  liveCsvStatus,
+  onDownloadLiveCsv,
   freshnessMessage,
 }: DashboardMeasurementProps) {
   const latestByKey = new Map(samples.map((sample) => [sample.key, sample]));
-  const graphKey = experiment.measurements[0]?.key;
-  const graphValues = history.filter((sample) => sample.key === graphKey).slice(-16);
-  const max = Math.max(...graphValues.map((sample) => sample.value), 1);
-  const min = Math.min(...graphValues.map((sample) => sample.value), 0);
-  const range = max - min || 1;
-  const points = graphValues.map((sample, index) => {
-    const x = graphValues.length === 1 ? 50 : (index / (graphValues.length - 1)) * 100;
-    const y = 88 - ((sample.value - min) / range) * 68;
-    return `${x},${y}`;
-  }).join(' ');
 
   return (
     <section className="measurement-panel dashboard-measurement" id="measurement" aria-labelledby="measurement-title">
@@ -49,7 +46,7 @@ export function DashboardMeasurement({
         </span>
       </div>
 
-      <div className="dashboard-metric-grid" aria-live="polite" aria-atomic="false">
+      <div className="dashboard-metric-grid" aria-live="off">
         {experiment.measurements.map((definition) => {
           const sample = latestByKey.get(definition.key);
           return (
@@ -83,21 +80,18 @@ export function DashboardMeasurement({
           </button>
         )}
         <button type="button" className="text-button" onClick={onDemo} disabled={measuring}>기기 없이 데모 데이터 보기</button>
+        <button
+          type="button"
+          className="button button-secondary live-csv-button"
+          onClick={onDownloadLiveCsv}
+          disabled={liveCsvCount === 0}
+        >
+          <Download size={15} aria-hidden="true" /> 현재 측정 CSV 받기 ({liveCsvCount}행)
+        </button>
       </div>
+      {liveCsvStatus && <p className="live-csv-status" role="status">{liveCsvStatus}</p>}
 
-      <div className="compact-history" aria-label={`${experiment.measurements[0]?.label ?? '측정값'} 변화 그래프`}>
-        <div>
-          <span><Waves size={15} aria-hidden="true" /> 최근 변화</span>
-          <small>{graphValues.length ? `${graphValues.length}개 값` : '값을 기다리는 중'}</small>
-        </div>
-        {graphValues.length > 1 ? (
-          <svg viewBox="0 0 100 100" role="img" preserveAspectRatio="none">
-            <polyline points={points} vectorEffect="non-scaling-stroke" />
-          </svg>
-        ) : (
-          <div className="compact-history-empty">측정을 시작하면 변화가 표시됩니다.</div>
-        )}
-      </div>
+      <LiveSensorChart experiment={experiment} history={history} connected={connected} measuring={measuring} />
     </section>
   );
 }

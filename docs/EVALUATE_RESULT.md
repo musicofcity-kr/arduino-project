@@ -2,55 +2,52 @@
 document: NODE_RESULT
 node: EVALUATE
 verdict: PASS
-revision: 3
-superseded: false
+revision: 4
 evidence_level: V2
-evidence_unit: 44/44
-evidence_e2e: webserial-broad-picker-regression-pass+webserial-reset-regression-pass
-evidence_build: 1812 modules
-recorded_at: 2026-08-13T13:09:46+09:00
+evidence_unit: 56/56
+evidence_e2e: local-browser-chart-layout-pass+live-session-csv-regression-pass
+evidence_build: 1815 modules
+recorded_at: 2026-08-13T13:55:32+09:00
 ---
 
 # EVALUATE RESULT
 
 ## INPUT
 
-최종 검증 산출물과 독립 Reviewer 재감사.
+revision 4 BUILD·VERIFY 결과와 데이터/학생 UI/React 독립 검토.
 
 ## TASK
 
-학생 사용성, 과학적 의미, 데이터 출처, 안전, 개인정보와 릴리스 주장 범위를 PROJECT_SPEC P0에 대조했다.
+과학적 단위와 출처, 세션 경계, CSV 손실·주입 위험, 학생 가독성, 접근성, 기존 저장 기능과의 구분을 PROJECT_SPEC P0에 대조했다.
 
 ## OUTPUT
 
-- 학생 흐름은 `탐구 선택 → 센서 연결 → 바로 측정`으로 유지했다.
-- 실측·계산·demo를 텍스트 배지와 저장 스키마에서 분리했다.
-- LDR는 lux가 아닌 원시 상대 신호와 기준 대비 상대 투과율로 표시했다.
-- 교육과정 코드는 공식 확인 전 draft로 표시했다.
-- 학생 개인정보를 수집하지 않고 서버도 명시적 개인정보 필드를 거부한다.
-- UNO 자동 리셋 동안 성공 상태를 먼저 표시하지 않고 유효 heartbeat와 exact ACK를 순서대로 확인하며, PING 재시도는 같은 포트에서 1회로 제한한다.
-- COM 번호나 USB VID/PID를 고정하지 않고 브라우저가 표시하는 직렬 장치에서 사용자가 UNO를 선택한다. Web Serial API가 없는 환경은 지원되지 않는 상태로 명확히 안내한다.
-- CSS 390px 브라우저 재검증에서 가로 넘침·오류 오버레이·콘솔 경고/오류가 없고, LDR `count` 표시와 demo 저장 차단을 확인했다.
+- DHT 온도·상대습도는 별도 축으로 표시해 단위 혼합을 피했다.
+- LDR는 lux가 아닌 `count`, HC-SR04는 원시 거리 `cm`로 표시한다.
+- 실시간 CSV와 사용자가 저장한 기록 CSV의 버튼·데이터 경로를 분리했다.
+- 그래프에 실측/예시, 현재/마지막 기록, 단위, 표본 수와 첫 값 대비 변화를 텍스트로 표시한다. 이를 전체 추세로 확대 해석하지 않는다.
+- SVG title/desc와 중지 상태 live status를 제공하고, 모바일 핵심 버튼을 44px 이상으로 맞췄다.
+- 새 run은 fresh MODE ACK 성공 뒤 생성하며 센서별 계산 기준을 초기화한다.
 
 ## PASS 조건과 판정
 
 | 조건 | 결과 | 증거 등급 |
 |---|---|---|
 | 과학·단위·출처 P0 | PASS | V2 |
-| 학생 Easy Mode와 오류 복구 | PASS | V2 |
-| 개인정보·안전 | PASS | V2 |
+| CSV 추적성과 무손실 경계 | PASS | V2 |
+| 학생 상태 구분과 접근성 | PASS | V2 |
 | 독립 Reviewer blocker/major | 0건 | V1 |
 
 ## Negative / Fail-closed 검증
 
-ACK 불일치, sensor timeout, demo 저장, 잘못된 단위와 provenance 위조가 학생 성공 상태나 저장 기록으로 통과하지 않는다.
+demo는 실측 그래프 출처나 live CSV가 되지 않으며, STOP 뒤 그래프는 현재값으로 표시하지 않는다. 비정상 CSV 입력과 세션 경계가 조용히 통과하지 않는다.
 
 ## FAIL ROUTE 발화 기록
 
 | 판정 | 목적지 | 사유 |
 |---|---|---|
-| REPAIR | BUILD | 독립 감사에서 확인된 P0 결함을 모두 수리하고 Reviewer가 BUILD PASS를 재확인 |
+| REPAIR | BUILD | 독립 감사 major를 수리하고 관련 회귀 테스트를 추가 |
 
 ## 한계
 
-교육 품질의 V3 판정에는 실제 교사·학생·UNO·학교 PC 확인이 필요하다.
+실제 UNO 수신 세션에서 그래프와 다운로드 파일을 확인하고, 실제 스마트폰/태블릿 및 보조기술 사용성을 확인해야 한다.

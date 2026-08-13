@@ -93,11 +93,11 @@ a { color: inherit; }
 .quick-actions a { padding: 7px; color: #42506a; font-size: 11px; text-decoration: none; }
 .quick-actions a:hover { color: var(--brand); }
 
-.dashboard-main { min-width: 0; min-height: 0; padding: 12px 13px 18px 12px; overflow: hidden; }
+.dashboard-main { min-width: 0; min-height: 0; padding: 12px 13px 18px 12px; overflow: auto; }
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(520px, 1.28fr) 294px minmax(450px, 1fr);
-  grid-template-rows: 304px 176px minmax(198px, 1fr);
+  grid-template-rows: 400px 176px minmax(198px, 1fr);
   grid-template-areas:
     "hero sensor measurement"
     "workflow simulation simulation"
@@ -187,18 +187,32 @@ a { color: inherit; }
 .source-demo { color: #8b5517; background: #fff0d8; border-color: #ebd1a7; }
 .source-none { color: #687386; background: #edf0f4; border-color: #dce1e8; }
 .freshness-warning { margin: 6px 0 0; padding: 6px 8px; border-radius: 6px; color: #983738; background: #fde9e7; font-size: 9px; }
-.dashboard-measure-actions { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.dashboard-measure-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 7px; }
 .dashboard-measure-actions .button { flex: 0 0 auto; min-height: 31px; }
 .measure-button { min-width: 135px; }
 .text-button { padding: 7px 2px; border: 0; color: #526078; background: transparent; font-size: 9px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .text-button:disabled { opacity: .45; cursor: not-allowed; }
-.compact-history { min-height: 55px; margin-top: 7px; padding: 6px 9px; border: 1px solid #e2e7ef; border-radius: 7px; background: #fbfcfe; }
-.compact-history > div:first-child { display: flex; align-items: center; justify-content: space-between; }
-.compact-history > div:first-child span { display: inline-flex; align-items: center; gap: 5px; color: #4d5b71; font-size: 9px; font-weight: 800; }
+.live-csv-button { min-height: 31px; color: #1857a7; background: #eaf2ff; }
+.live-csv-status { width: 100%; margin: 1px 0 0; color: #536176; font-size: 8px; line-height: 1.35; }
+.compact-history { min-height: 55px; margin-top: 6px; padding: 6px 9px; border: 1px solid #e2e7ef; border-radius: 7px; background: #fbfcfe; }
+.live-chart-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.live-chart-heading strong { color: #4d5b71; font-size: 9px; }
 .compact-history small { color: #7c8798; font-size: 8px; }
-.compact-history svg { width: 100%; height: 29px; }
-.compact-history polyline { fill: none; stroke: var(--brand); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.compact-history-empty { display: grid; height: 27px; place-items: center; color: #8a95a5; background: repeating-linear-gradient(0deg, transparent 0, transparent 8px, #edf1f6 9px); font-size: 8px; }
+.live-chart-series-list { display: grid; gap: 4px; margin-top: 4px; }
+.live-chart-series { min-width: 0; }
+.live-chart-series + .live-chart-series { padding-top: 4px; border-top: 1px solid #e8edf3; }
+.live-chart-series-header { display: flex; justify-content: space-between; gap: 7px; color: #536176; font-size: 8px; }
+.live-chart-series-header span:first-child { overflow: hidden; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.live-chart-series-header span:last-child { color: #68768a; white-space: nowrap; }
+.live-chart-series svg { display: block; width: 100%; height: 25px; margin-top: 2px; }
+.live-chart-grid { stroke: #dfe6ef; stroke-width: 1; }
+.live-chart-line { stroke: var(--brand); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+polyline.live-chart-line { fill: none; }
+circle.live-chart-line { fill: var(--brand); }
+.live-chart-humidity .live-chart-line { stroke: #7957cf; stroke-dasharray: 4 2; }
+.live-chart-humidity circle.live-chart-line { fill: #7957cf; }
+.live-chart-axis { display: block; margin-top: 1px; text-align: right; }
+.compact-history-empty { display: grid; height: 32px; place-items: center; color: #7d899a; background: repeating-linear-gradient(0deg, transparent 0, transparent 8px, #edf1f6 9px); font-size: 9px; }
 
 .workflow-panel { grid-area: workflow; padding: 12px 14px; }
 .workflow-panel ol { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; margin: 10px 0 0; padding: 0; list-style: none; }
@@ -306,7 +320,7 @@ a { color: inherit; }
   .dashboard-main { overflow: visible; }
   .dashboard-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: 304px 304px 176px 210px 210px;
+    grid-template-rows: 304px 400px 176px 210px 210px;
     grid-template-areas:
       "hero hero"
       "sensor measurement"
@@ -337,6 +351,13 @@ a { color: inherit; }
   .mode-card { display: none; }
   .mode-card.is-active { display: grid; }
   .sensor-panel, .dashboard-measurement { min-height: 304px; }
+  .dashboard-measure-actions { display: grid; grid-template-columns: 1fr; }
+  .dashboard-measure-actions .button, .dashboard-measure-actions .text-button { width: 100%; min-height: 44px; font-size: 12px; }
+  .record-buttons .button { min-height: 44px; font-size: 12px; }
+  .measurement-label, .measurement-value span, .dashboard-metric-card time { font-size: 12px; }
+  .live-chart-series-header { align-items: flex-start; flex-direction: column; gap: 2px; font-size: 11px; }
+  .live-chart-series svg { height: 44px; }
+  .live-chart-heading strong, .compact-history small, .live-chart-axis, .live-csv-status { font-size: 11px; }
   .workflow-panel { min-height: 188px; overflow-x: auto; }
   .workflow-panel ol { min-width: 560px; }
   .simulation-panel { min-height: 190px; }

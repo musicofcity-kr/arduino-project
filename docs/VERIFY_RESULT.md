@@ -2,53 +2,54 @@
 document: NODE_RESULT
 node: VERIFY
 verdict: PASS
-revision: 3
-superseded: false
+revision: 4
 evidence_level: V2
-evidence_unit: 44/44
-evidence_e2e: webserial-broad-picker-regression-pass+webserial-reset-regression-pass
-evidence_build: 1812 modules
-recorded_at: 2026-08-13T13:09:46+09:00
+evidence_unit: 56/56
+evidence_e2e: local-browser-chart-layout-pass+live-session-csv-regression-pass
+evidence_build: 1815 modules
+recorded_at: 2026-08-13T13:55:32+09:00
 ---
 
 # VERIFY RESULT
 
 ## INPUT
 
-최종 BUILD 산출물 revision 3.
+BUILD revision 4의 실시간 그래프와 현재 측정 CSV 산출물.
 
 ## TASK
 
-protocol parser, ACK/STOP/timeout, velocity/transmittance, 저장 스키마, 실제 로컬 API POST→GET→CSV, UI 회귀, production build와 브라우저 흐름을 검증했다.
+순수 그래프 모델, CSV serializer, Web Serial 연속 수신·STOP·재시작, 다운로드 DOM 흐름, 기존 저장 API/CSV 회귀, production build와 로컬 브라우저 레이아웃을 검증했다.
 
 ## OUTPUT
 
-- `npm test`: 44/44 PASS
-- `npm run build`: 1,812 modules transformed
-- Web Serial 포트 선택 회귀: `requestPort()` 1회·인자 0개로 COM/VID/PID 무필터 선택 PASS, API 부재 환경의 지원 안내 PASS
-- Web Serial 회귀: heartbeat 전 PING 0건, 최초 PING 유실 뒤 동일 포트에서 PING 1회 재시도, MODE·STOP exact ACK 후 ready PASS
-- 실제 로컬 API health 및 Experiment Pack 3개 응답 PASS
-- 로컬 production 브라우저: 핵심 화면과 DHT11 연결 버튼 렌더링, 초기 상태 `센서 연결 전`, 오류 오버레이 없음, 콘솔 warning/error 0건
+- `npm test`: Vitest 47/47 + Node 서버·펌웨어 9/9 = 56/56 PASS
+- `npm run build`: TypeScript + Vite PASS, 1,815 modules transformed
+- package gate: blocker 0 / warn 0
+- package selftest: 42/42 PASS
+- HTML smoke: fail 0, 외부 리소스 없음
+- 로컬 브라우저: DHT 그래프 2개, HC/LDR raw-only 그래프, demo CSV 차단, 가로 overflow 0
+- 데스크톱 측정 패널: clientHeight=scrollHeight=398, 다음 행 overlap=false
 
 ## PASS 조건과 판정
 
 | 조건 | 결과 | 증거 등급 |
 |---|---|---|
-| protocol/parser와 ACK 상태 | PASS | V2 |
-| 계산과 저장 provenance | PASS | V2 |
-| demo를 real로 오인하지 않는 UI | PASS | V2 |
-| build와 브라우저 핵심 흐름 | PASS | V2 |
+| 그래프 timestamp 간격·상수값·reset/source 분리 | PASS | V2 |
+| CSV BOM·CRLF·escaping·provenance | PASS | V2 |
+| 다운로드가 저장 API를 호출하지 않음 | PASS | V2 |
+| 실패 재시작 보존·HC 재시작 계산 초기화 | PASS | V2 |
+| production build와 로컬 브라우저 화면 | PASS | V2 |
 
 ## Negative / Fail-closed 검증
 
-실패 입력과 timeout이 성공·현재값·저장 결과로 통과하지 않음을 자동 테스트와 브라우저 확인으로 검증했다.
+잘못된 값·단위·출처, demo 저장/내보내기, stale 데이터, ACK 불일치, line overflow, incomplete CSV frame이 성공 경로로 통과하지 않는다.
 
 ## FAIL ROUTE 발화 기록
 
 | 판정 | 목적지 | 사유 |
 |---|---|---|
-| REPAIR | BUILD | 독립 Reviewer가 발견한 blocker를 BUILD에서 수리 후 전체 검증 재실행 |
+| REPAIR | BUILD | 독립 Reviewer가 발견한 데이터·UI major를 BUILD에서 수리한 뒤 전체 검증을 재실행 |
 
 ## 한계
 
-Revision 2 브라우저 자동 검증은 실제 USB 권한 선택과 UNO 연결을 수행하지 않았다. 배포 후 실제 UNO·DHT11 흐름을 다시 확인해야 하며, CSS 390px 시뮬레이션은 통과했지만 실제 390px 기기 검증은 남아 있다.
+브라우저 자동 검증은 실제 USB 권한 선택과 UNO를 사용하지 않았다. 실제 센서 연속값 그래프/CSV와 실제 390px 기기 검증은 미실행이다.

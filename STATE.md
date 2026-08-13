@@ -3,7 +3,7 @@ document: STATE
 package_version: 5.0.0
 project: Web App-based Integrated Modular Science Inquiry Workbench
 graph: default
-revision: 3
+revision: 4
 active_node: USER CHECK
 status: ESCALATE
 retry_count: 0
@@ -11,13 +11,13 @@ repair_target: none
 fallback_target: none
 terminal_node: COMPLETE
 terminal_reached: false
-updated_at: 2026-08-13T13:15:37+09:00
+updated_at: 2026-08-13T14:03:00+09:00
 evidence_level: V2
 evidence_committed: true
-evidence_unit: 44/44
-evidence_e2e: webserial-broad-picker-regression-pass+webserial-reset-regression-pass
-evidence_build: 1812 modules
-open_question: 무필터 Web Serial 포트 선택은 V2 PASS. 실제 각 PC·지원 모바일에서 UNO 선택·연결 확인과 기존 HC-SR04 속도·LDR·저장/CSV·학교 PC·학생 흐름 검증이 남음
+evidence_unit: 56/56
+evidence_e2e: local-browser-chart-layout-pass+live-session-csv-regression-pass
+evidence_build: 1815 modules
+open_question: 실제 UNO 연속 센서값 그래프와 현재 측정 CSV 다운로드를 배포 환경에서 확인할 것
 stop_reason: none
 fallback_reason: none
 ---
@@ -26,13 +26,14 @@ fallback_reason: none
 
 ## 현재 판정 요약
 
-React/Vite 기반 학생용 Easy Mode, Web Serial 센서 통신, 실험별 계산·출처 추적, 비식별 로컬 저장 API, CSV 내보내기, Arduino UNO 통합 펌웨어의 BUILD·VERIFY·EVALUATE 자동 검증을 통과했다. revision 2의 heartbeat 대기·PING 제한 재시도·MODE ACK 5초·pending read 단일화에 이어, revision 3에서는 `requestPort()`를 필터 없이 호출하는 광범위 포트 선택 계약을 회귀 테스트로 고정했다. 따라서 PC마다 달라지는 COM 번호와 공식·호환 UNO의 USB 브리지 ID를 런타임 조건으로 사용하지 않는다. Web Serial API가 없는 PC·모바일 환경은 연결을 시도하지 않고 지원 브라우저 안내를 표시한다. 단위·서버·펌웨어 계약 테스트는 44/44, production build는 1,812 modules이다. 이전 실제 COM7 검증의 DHT11 유효 온습도 측정 4건과 HC-SR04 거리 측정 21건 증거는 특정 포트 요구사항이 아니라 당시 시험 장비의 V3 기록으로 유지한다. HC-SR04 V3-04 전체 기준인 실제 거리 변화·속도 계산은 남았고, LDR는 예상과 반대인 반응과 ADC 포화 때문에 사용자 결정에 따라 추후 검증한다. 현재 산출물은 `verified-build`이며 실제 각 기기의 브라우저 포트 선택과 나머지 사용자 확인을 기다린다.
+revision 4에서 실시간 센서 그래프와 현재 측정 세션 CSV를 구현했다. DHT11 온도·상대습도는 별도 그래프, HC-SR04와 LDR는 원시값 그래프로 표시하며 단위·실측/예시 출처·최신/최저/최고·표본 수·첫 값 대비 변화를 제공한다. 첫 값과 최신값의 차이는 전체 추세로 확대 해석하지 않는다. CSV는 화면 그래프 버퍼와 분리해 최대 10,000행을 보존하고 raw/derived provenance, 장치 timestamp, 브라우저 수신시각, 공식과 입력 근거를 기록한다. demo는 제외한다.
+
+자동 테스트 56/56, package selftest 42/42, package gate, TypeScript/Vite production build 1,815 modules를 통과했다. 로컬 브라우저에서 DHT 그래프 2개, HC/LDR raw-only 그래프, demo CSV 차단, 데스크톱 패널 비겹침과 가로 overflow 0을 확인했다. 실제 UNO·배포 URL·실제 모바일 기기의 새 기능은 아직 확인하지 않았으므로 `verified-build` 범위이며 COMPLETE가 아니다.
 
 ## 사용자 확인이 필요한 범위
 
-- Arduino UNO와 HC-SR04의 실제 거리 변화·속도 계산 확인
-- Arduino UNO와 LDR의 상대 밝기 측정 및 기준값 계산 확인(사용자 결정으로 추후 검증)
-- 학교 PC의 Chrome 보안 정책, Web Serial 허용 여부, COM 포트 점유·복구 확인
-- 초보 학생이 Easy Mode를 5분 안에 완주하는지 확인
-- 실제 수업 전·후 학습 효과, 오개념 감소, 만족도 확인
-- 다수 학생 동시 사용, 장기 데이터 보존, 운영 비용 확인
+- Vercel 배포 URL에서 UNO 연결 후 DHT11/HC-SR04 연속값이 실제 그래프에 누적되는지 확인
+- 측정 중/STOP 후 `현재 측정 CSV`를 내려받아 timestamp·단위·행 수가 실제값과 일치하는지 확인
+- 실제 390px 모바일/태블릿의 Web Serial 지원 여부와 버튼·스크롤 사용성 확인
+- LDR는 사용자 결정에 따라 추후 검증
+- 초보 학생의 Easy Mode 완주와 실제 수업 효과 확인

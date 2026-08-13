@@ -1,3 +1,5 @@
+import { rowsToCsv } from './csv';
+
 export type MeasurementSourceKind = "measured" | "calculated" | "simulated" | "demo";
 export type MeasurementTransport = "web-serial" | "manual" | "import";
 
@@ -156,11 +158,6 @@ export function createSessionApi(options: SessionApiOptions = {}): SessionApi {
   };
 }
 
-function csvCell(value: unknown): string {
-  const text = value == null ? "" : typeof value === "string" ? value : JSON.stringify(value);
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
 export function measurementsToCsv(records: readonly MeasurementRecord[]): string {
   const rows: unknown[][] = [["provenance", "sourceKind", "sensorPackId", "quantitySource", "metric", "value", "unit", "timestampMs", "timestamp", "receivedAt", "formula", "inputs"]];
   for (const record of records) {
@@ -171,5 +168,5 @@ export function measurementsToCsv(records: readonly MeasurementRecord[]): string
       rows.push(["derived", record.source.kind, record.source.sensorPackId, "calculation", metric, reading.value, reading.unit, reading.timestampMs, record.timestamp, record.receivedAt, reading.formula, reading.inputs]);
     }
   }
-  return `${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}\r\n`;
+  return rowsToCsv(rows);
 }
