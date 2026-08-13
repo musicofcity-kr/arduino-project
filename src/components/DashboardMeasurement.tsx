@@ -2,6 +2,13 @@ import { Activity, Download, Play, Square } from 'lucide-react';
 import type { MeasurementSample, StudentExperiment } from './types';
 import { LiveSensorChart } from './LiveSensorChart';
 import { SourceBadge } from './SourceBadge';
+import {
+  MEASUREMENT_DURATION_OPTIONS_MS,
+  SENSOR_INTERVAL_OPTIONS_MS,
+  durationLabel,
+  formatRemainingTime,
+  intervalLabel,
+} from '../domain/measurementTiming';
 
 interface DashboardMeasurementProps {
   experiment: StudentExperiment;
@@ -17,6 +24,14 @@ interface DashboardMeasurementProps {
   onDownloadLiveCsv: () => void;
   freshnessMessage?: string;
   measurementStale?: boolean;
+  measurementIntervalMs: number;
+  measurementDurationMs: number;
+  measurementRemainingMs: number | null;
+  timingLocked: boolean;
+  timingStatus: string;
+  liveRunOutcome: 'none' | 'running' | 'completed' | 'stopped' | 'interrupted';
+  onIntervalChange: (intervalMs: number) => void;
+  onDurationChange: (durationMs: number) => void;
 }
 
 export function DashboardMeasurement({
@@ -33,8 +48,31 @@ export function DashboardMeasurement({
   onDownloadLiveCsv,
   freshnessMessage,
   measurementStale = false,
+  measurementIntervalMs,
+  measurementDurationMs,
+  measurementRemainingMs,
+  timingLocked,
+  timingStatus,
+  liveRunOutcome,
+  onIntervalChange,
+  onDurationChange,
 }: DashboardMeasurementProps) {
   const latestByKey = new Map(samples.map((sample) => [sample.key, sample]));
+  const runActive = measuring || (timingLocked && liveRunOutcome === 'running');
+  const statusLabel = measuring
+    ? (measurementStale ? '현재값 대기' : '실시간 수신')
+    : timingLocked
+      ? (timingStatus.includes('종료') || timingStatus.includes('멈춤') ? '종료 확인 중' : '설정 확인 중')
+      : connected ? '측정 준비' : '측정 전';
+  const csvPrefix = liveRunOutcome === 'running'
+    ? '지금까지'
+    : liveRunOutcome === 'completed'
+      ? '완료한'
+      : liveRunOutcome === 'stopped'
+        ? '직접 멈춘'
+        : liveRunOutcome === 'interrupted'
+          ? '중단된'
+          : '이번';
 
   return (
     <section className="measurement-panel dashboard-measurement" id="measurement" aria-labelledby="measurement-title">
@@ -44,7 +82,7 @@ export function DashboardMeasurement({
           <h2 id="measurement-title">실시간 측정</h2>
         </div>
         <span className={`measurement-status ${measuring ? 'is-live' : ''}`} role="status">
-          <Activity size={14} aria-hidden="true" /> {measuring ? (measurementStale ? '현재값 대기' : '실시간 수신') : connected ? '측정 준비' : '측정 전'}
+          <Activity size={14} aria-hidden="true" /> {statusLabel}
         </span>
       </div>
 
@@ -69,26 +107,63 @@ export function DashboardMeasurement({
         })}
       </div>
 
+      <fieldset className="measurement-timing" disabled={timingLocked} aria-describedby="measurement-timing-help">
+        <legend>측정 설정</legend>
+        <label htmlFor="measurement-interval">
+          <span>얼마마다 측정할까요?</span>
+          <select
+            id="measurement-interval"
+            value={measurementIntervalMs}
+            onChange={(event) => onIntervalChange(Number(event.target.value))}
+          >
+            {SENSOR_INTERVAL_OPTIONS_MS[experiment.sensorId].map((intervalMs) => (
+              <option key={intervalMs} value={intervalMs}>{intervalLabel(intervalMs)}마다</option>
+            ))}
+          </select>
+        </label>
+        <label htmlFor="measurement-duration">
+          <span>얼마 동안 측정할까요?</span>
+          <select
+            id="measurement-duration"
+            value={measurementDurationMs}
+            onChange={(event) => onDurationChange(Number(event.target.value))}
+          >
+            {MEASUREMENT_DURATION_OPTIONS_MS.map((durationMs) => (
+              <option key={durationMs} value={durationMs}>{durationLabel(durationMs)}</option>
+            ))}
+          </select>
+        </label>
+        <p id="measurement-timing-help">
+          설정은 측정 중 잠깁니다. 그래프는 최근 24개 점, CSV는 이번 측정의 최대 10,000행을 보관해요.
+        </p>
+        <output className="measurement-timer" role="timer" aria-live="off" aria-atomic="true">
+          {measurementRemainingMs === null
+            ? `${intervalLabel(measurementIntervalMs)}마다 · ${durationLabel(measurementDurationMs)}`
+            : `남은 시간 ${formatRemainingTime(measurementRemainingMs)}`}
+        </output>
+        <span className="measurement-timing-status" role="status" aria-live="polite" aria-atomic="true">{timingStatus}</span>
+      </fieldset>
+
       {freshnessMessage && <p className="freshness-warning" role="alert">{freshnessMessage}</p>}
 
       <div className="dashboard-measure-actions">
-        {measuring ? (
-          <button type="button" className="button button-danger" onClick={onStop}>
-            <Square size={15} fill="currentColor" aria-hidden="true" /> 측정 멈추기
+        {runActive ? (
+          <button type="button" className="button button-danger" onClick={onStop} disabled={!measuring}>
+            <Square size={15} fill="currentColor" aria-hidden="true" /> {measuring ? '측정 멈추기' : '종료 확인 중…'}
           </button>
         ) : (
           <button type="button" className="button button-primary measure-button" onClick={onStart} disabled={!connected}>
             <Play size={15} fill="currentColor" aria-hidden="true" /> 바로 측정 시작
           </button>
         )}
-        <button type="button" className="text-button" onClick={onDemo} disabled={measuring}>기기 없이 데모 데이터 보기</button>
+        <button type="button" className="text-button" onClick={onDemo} disabled={measuring || timingLocked}>기기 없이 데모 데이터 보기</button>
         <button
           type="button"
           className="button button-secondary live-csv-button"
           onClick={onDownloadLiveCsv}
           disabled={liveCsvCount === 0}
         >
-          <Download size={15} aria-hidden="true" /> 현재 측정 CSV 받기 ({liveCsvCount}행)
+          <Download size={15} aria-hidden="true" /> {csvPrefix} 측정 CSV 받기 ({liveCsvCount}행)
         </button>
       </div>
       {liveCsvStatus && <p className="live-csv-status" role="status">{liveCsvStatus}</p>}

@@ -39,8 +39,9 @@ export interface StopMessage {
 
 export interface AckMessage {
   kind: "ack";
-  command: "PING" | "MODE" | "STOP" | "UNSPECIFIED";
+  command: "PING" | "MODE" | "INTERVAL" | "STOP" | "UNSPECIFIED";
   mode?: SensorPackId;
+  intervalMs?: number;
 }
 
 export interface DeviceErrorMessage {
@@ -180,6 +181,17 @@ function parseTextMessage(raw: string): ProtocolParseResult {
     return sensor
       ? { ok: true, message: { kind: "ack", command: "MODE", mode: sensor } }
       : fail("INVALID_SENSOR", "ACK contains an unsupported sensor pack", raw);
+  }
+
+  const ackInterval = /^ACK:INTERVAL:([^:]+):(\d+)$/.exec(raw);
+  if (ackInterval) {
+    const sensor = parseSensor(ackInterval[1]);
+    const intervalMs = Number(ackInterval[2]);
+    if (!sensor) return fail("INVALID_SENSOR", "INTERVAL ACK contains an unsupported sensor pack", raw);
+    if (!Number.isSafeInteger(intervalMs) || intervalMs <= 0) {
+      return fail("INVALID_FIELD", "INTERVAL ACK milliseconds must be a positive safe integer", raw);
+    }
+    return { ok: true, message: { kind: "ack", command: "INTERVAL", mode: sensor, intervalMs } };
   }
 
   const deviceError = /^ERROR:([A-Z0-9_\-]+):(.+)$/.exec(raw);

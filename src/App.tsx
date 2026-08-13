@@ -3,6 +3,12 @@ import { experimentPacks, sensorPacks } from './domain/packs';
 import { deriveRelativeTransmittance, deriveVelocity } from './domain/calculations';
 import { parseProtocolLine } from './domain/protocol';
 import type { AckMessage, RawMeasurement, SensorPackId } from './domain/protocol';
+import {
+  DEFAULT_SENSOR_INTERVAL_MS,
+  durationLabel,
+  formatRemainingTime,
+  measurementFreshnessMs,
+} from './domain/measurementTiming';
 import { ExperimentCard } from './components/ExperimentCard';
 import { DashboardMeasurement } from './components/DashboardMeasurement';
 import { RecordActions } from './components/RecordActions';
@@ -21,6 +27,7 @@ import {
   liveSessionFilename,
   liveSessionSamplesToCsv,
 } from './services/liveSessionCsv';
+import type { LiveSessionCsvContext } from './services/liveSessionCsv';
 import {
   Activity,
   BarChart3,
@@ -118,11 +125,6 @@ const BOOT_HEARTBEAT_TIMEOUT_MS = 5000;
 const PING_ACK_TIMEOUT_MS = 1800;
 const MODE_ACK_TIMEOUT_MS = 5000;
 const STOP_ACK_TIMEOUT_MS = 3000;
-const SENSOR_FRESH_MS: Readonly<Record<SensorPackId, number>> = {
-  dht11: 5000,
-  'hc-sr04': 3000,
-  ldr: 3000,
-};
 const TRANSPORT_LIVE_MS = 7000;
 const RESUME_GRACE_MS = 5000;
 const MAX_LINE_BUFFER = 4096;
@@ -143,6 +145,11 @@ interface LiveSessionRun {
   sensorPackId: StudentExperiment['sensorId'];
   samples: MeasurementSample[];
   truncated: boolean;
+  requestedIntervalMs: number;
+  requestedDurationMs: number | null;
+  startedAt: string;
+  endedAt: string | null;
+  stopReason: LiveSessionCsvContext['stopReason'];
 }
 
 function createLiveRunId(): string {
@@ -159,8 +166,15 @@ const connectionLabels: Record<ConnectionState, string> = {
   unsupported: '브라우저 확인 필요',
 };
 
-function matchesAck(message: AckMessage, command: 'PING' | 'MODE' | 'STOP', mode?: SensorPackId) {
-  return message.command === command && (command === 'PING' || message.mode === mode);
+function matchesAck(
+  message: AckMessage,
+  command: 'PING' | 'MODE' | 'INTERVAL' | 'STOP',
+  mode?: SensorPackId,
+  intervalMs?: number,
+) {
+  return message.command === command &&
+    (command === 'PING' || command === 'STOP' || message.mode === mode) &&
+    (command !== 'INTERVAL' || message.intervalMs === intervalMs);
 }
 
 export function createMeasurementDraft(
@@ -242,6 +256,11 @@ export default function App() {
   const [hasSavedRecords, setHasSavedRecords] = useState(false);
   const [liveCsvCount, setLiveCsvCount] = useState(0);
   const [liveCsvStatus, setLiveCsvStatus] = useState('');
+  const [liveRunOutcome, setLiveRunOutcome] = useState<'none' | 'running' | 'completed' | 'stopped' | 'interrupted'>('none');
+  const [measurementIntervalMs, setMeasurementIntervalMs] = useState(DEFAULT_SENSOR_INTERVAL_MS[selected.sensorId]);
+  const [measurementDurationMs, setMeasurementDurationMs] = useState(0);
+  const [measurementEndsAt, setMeasurementEndsAt] = useState<number | null>(null);
+  const [measurementTimingStatus, setMeasurementTimingStatus] = useState('설정을 선택한 뒤 측정을 시작하세요.');
 
   const portRef = useRef<SerialPortLike | null>(null);
   const readerRef = useRef<SerialReaderLike | null>(null);
@@ -257,18 +276,28 @@ export default function App() {
   const lastTransportAtRef = useRef<number | null>(null);
   const resumeGraceUntilRef = useRef(0);
   const measurementStaleRef = useRef(false);
+  const appliedIntervalMsRef = useRef(DEFAULT_SENSOR_INTERVAL_MS[selected.sensorId]);
+  const measurementEndsAtRef = useRef<number | null>(null);
+  const autoStopRequestedRef = useRef(false);
   const ldrReferenceRef = useRef<RawMeasurement | null>(null);
   const previousDistanceRef = useRef<RawMeasurement | null>(null);
   const anonymousSessionRef = useRef<string | null>(null);
   const liveSessionRef = useRef<LiveSessionRun | null>(null);
   const sessionApi = useMemo(() => createSessionApi(), []);
 
+  const endLiveRun = useCallback((stopReason: Exclude<LiveSessionCsvContext['stopReason'], 'running'>) => {
+    const liveRun = liveSessionRef.current;
+    if (!liveRun || liveRun.stopReason !== 'running') return;
+    liveRun.endedAt = new Date().toISOString();
+    liveRun.stopReason = stopReason;
+  }, []);
+
   const currentStep: 1 | 2 | 3 = connectionState === 'ready' || connectionState === 'measuring'
     ? 3
     : selected ? 2 : 1;
   const connected = connectionState === 'ready' || connectionState === 'measuring';
   const visibleSamples = samples.filter((sample) =>
-    sample.source === 'demo' || freshnessTick - sample.receivedAt <= SENSOR_FRESH_MS[selected.sensorId]
+    sample.source === 'demo' || freshnessTick - sample.receivedAt <= measurementFreshnessMs(selected.sensorId, appliedIntervalMsRef.current)
   );
 
   useEffect(() => {
@@ -330,9 +359,10 @@ export default function App() {
 
   const waitForAck = useCallback(async (
     command: string,
-    expectedCommand: 'PING' | 'MODE' | 'STOP',
+    expectedCommand: 'PING' | 'MODE' | 'INTERVAL' | 'STOP',
     expectedMode?: SensorPackId,
     timeoutMs = STOP_ACK_TIMEOUT_MS,
+    expectedIntervalMs?: number,
   ) => {
     await send(command);
     const started = Date.now();
@@ -347,7 +377,7 @@ export default function App() {
       if (parsed.message.kind === 'error') {
         throw new Error(`DEVICE_ERROR:${parsed.message.code}`);
       }
-      if (parsed.message.kind === 'ack' && matchesAck(parsed.message, expectedCommand, expectedMode)) {
+      if (parsed.message.kind === 'ack' && matchesAck(parsed.message, expectedCommand, expectedMode, expectedIntervalMs)) {
         setDiagnostic(`${command} ACK 확인`);
         return;
       }
@@ -398,6 +428,8 @@ export default function App() {
     lastMeasurementAtRef.current = null;
     lastTransportAtRef.current = null;
     resumeGraceUntilRef.current = 0;
+    autoStopRequestedRef.current = false;
+    measurementEndsAtRef.current = null;
     const reader = readerRef.current;
     const writer = writerRef.current;
     const port = portRef.current;
@@ -425,7 +457,7 @@ export default function App() {
   useEffect(() => {
     if (connectionState !== 'measuring' || document.hidden || freshnessTick < resumeGraceUntilRef.current) return;
     const measurementBoundary = lastMeasurementAtRef.current ?? measurementStartedAtRef.current;
-    if (measurementBoundary !== null && freshnessTick - measurementBoundary >= SENSOR_FRESH_MS[selected.sensorId]) {
+    if (measurementBoundary !== null && freshnessTick - measurementBoundary >= measurementFreshnessMs(selected.sensorId, appliedIntervalMsRef.current)) {
       markMeasurementStale('현재값 없음 · 센서는 연결되어 있고 새 측정값을 기다리고 있어요. 그래프와 CSV 기록은 유지됩니다.');
     }
     const transportBoundary = lastTransportAtRef.current ?? measurementStartedAtRef.current;
@@ -440,9 +472,14 @@ export default function App() {
       setConnectionState('error');
       setConnectionMessage('UNO의 heartbeat도 7초 동안 받지 못해 연결을 종료했어요. USB 케이블과 포트를 확인한 뒤 재연결해 주세요.');
       setDiagnostic('측정 오류: TRANSPORT_TIMEOUT');
+      endLiveRun('transport-timeout');
+      setLiveRunOutcome('interrupted');
+      measurementEndsAtRef.current = null;
+      setMeasurementEndsAt(null);
+      setMeasurementTimingStatus('연결이 종료되어 예약 측정을 완료로 표시하지 않습니다.');
       void closeSerial();
     }
-  }, [closeSerial, connectionState, freshnessTick, markMeasurementStale, selected.sensorId]);
+  }, [closeSerial, connectionState, endLiveRun, freshnessTick, markMeasurementStale, selected.sensorId]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -521,12 +558,18 @@ export default function App() {
   }, [closeSerial, selected, waitForAck, waitForHeartbeat, waitForPing]);
 
   const disconnect = useCallback(async () => {
+    const interruptedActiveRun = liveSessionRef.current?.stopReason === 'running';
+    endLiveRun('disconnect');
+    if (interruptedActiveRun) setLiveRunOutcome('interrupted');
     await closeSerial();
+    measurementEndsAtRef.current = null;
+    setMeasurementEndsAt(null);
+    setMeasurementTimingStatus('연결을 해제해 측정 시간이 초기화됐어요.');
     setConnectionState('idle');
     setConnectionMessage('연결을 해제했어요. 배선을 바꾸려면 지금 USB를 뽑아 주세요.');
     setSamples([]);
     setFreshnessMessage('');
-  }, [closeSerial]);
+  }, [closeSerial, endLiveRun]);
 
   const buildSamples = useCallback((line: string): MeasurementSample[] => {
     const parsed = parseProtocolLine(line);
@@ -617,6 +660,16 @@ export default function App() {
     let receiveLoopStarted = false;
     setFreshnessMessage('새 센서값을 기다리고 있어요.');
     try {
+      const firmwareSensorName = selected.modeCommand.slice('MODE:'.length);
+      setConnectionState('checking');
+      setConnectionMessage('선택한 측정 간격을 UNO에 적용하고 있어요.');
+      await waitForAck(
+        `SET_INTERVAL:${firmwareSensorName}:${measurementIntervalMs}`,
+        'INTERVAL',
+        selected.sensorId,
+        STOP_ACK_TIMEOUT_MS,
+        measurementIntervalMs,
+      );
       if (!firmwareActiveRef.current) {
         setConnectionState('checking');
         setConnectionMessage('센서 모드를 다시 시작하고 UNO 응답을 확인하고 있어요.');
@@ -631,14 +684,29 @@ export default function App() {
         sensorPackId: selected.sensorId,
         samples: [],
         truncated: false,
+        requestedIntervalMs: measurementIntervalMs,
+        requestedDurationMs: measurementDurationMs || null,
+        startedAt: new Date().toISOString(),
+        endedAt: null,
+        stopReason: 'running',
       };
       setLiveCsvCount(0);
+      setLiveRunOutcome('running');
       setLiveCsvStatus('실측 데이터가 들어오면 현재 측정 CSV를 받을 수 있어요.');
       ldrReferenceRef.current = null;
       previousDistanceRef.current = null;
       measuringRef.current = true;
       receiveLoopStarted = true;
       const startedAt = Date.now();
+      appliedIntervalMsRef.current = measurementIntervalMs;
+      autoStopRequestedRef.current = false;
+      const endsAt = measurementDurationMs > 0 ? startedAt + measurementDurationMs : null;
+      measurementEndsAtRef.current = endsAt;
+      setFreshnessTick(startedAt);
+      setMeasurementEndsAt(endsAt);
+      setMeasurementTimingStatus(measurementDurationMs > 0
+        ? `${durationLabel(measurementDurationMs)} 측정을 시작했어요.`
+        : '직접 멈출 때까지 측정합니다.');
       measurementStartedAtRef.current = startedAt;
       lastMeasurementAtRef.current = startedAt;
       lastTransportAtRef.current = startedAt;
@@ -683,6 +751,11 @@ export default function App() {
           throw new Error(`DEVICE_ERROR:${parsed.message.code}`);
         }
         if (parsed.message.kind !== 'measurement') continue;
+        if (measurementEndsAtRef.current !== null && Date.now() >= measurementEndsAtRef.current) {
+          setFreshnessTick(Date.now());
+          setDiagnostic('예약 종료시각 이후 도착한 센서 프레임을 이번 측정 기록에서 제외함');
+          continue;
+        }
         const next = buildSamples(line);
         if (!next.length) continue;
         lastMeasurementAtRef.current = Date.now();
@@ -709,22 +782,36 @@ export default function App() {
       if (!measuringRef.current && receiveLoopStarted) return;
       measuringRef.current = false;
       measurementStartedAtRef.current = null;
+      measurementEndsAtRef.current = null;
+      setMeasurementEndsAt(null);
       setConnectionState('error');
-      setConnectionMessage('측정 중 연결이 끊겼어요. 이전 값은 숨겼습니다. USB와 배선을 확인하고 다시 연결해 주세요.');
+      const detail = error instanceof Error ? error.message : 'unknown';
+      setConnectionMessage(receiveLoopStarted
+        ? '측정 중 연결이 끊겼어요. 이전 값은 숨겼습니다. USB와 배선을 확인하고 다시 연결해 주세요.'
+        : detail.includes('INVALID_INTERVAL')
+          ? '측정 간격을 UNO에 적용하지 못했어요. 최신 통합 펌웨어를 업로드한 뒤 다시 연결해 주세요.'
+          : '측정 설정을 확인하지 못했어요. 이전 기록은 유지됩니다. USB와 통합 펌웨어를 확인해 주세요.');
       setSamples([]);
       measurementStaleRef.current = true;
       setMeasurementStale(true);
       setFreshnessMessage('현재값 없음 · 마지막 측정 기록과 CSV는 유지됩니다.');
-      setDiagnostic(`수신 오류: ${error instanceof Error ? error.message : 'unknown'}`);
+      setDiagnostic(`${receiveLoopStarted ? '수신' : '측정 설정'} 오류: ${detail}`);
+      if (receiveLoopStarted) {
+        endLiveRun('serial-error');
+        setLiveRunOutcome('interrupted');
+      }
       await closeSerial();
     }
-  }, [buildSamples, closeSerial, connected, markMeasurementStale, readLine, selected.id, selected.modeCommand, selected.sensorId, selected.sensorName, waitForAck]);
+  }, [buildSamples, closeSerial, connected, endLiveRun, markMeasurementStale, measurementDurationMs, measurementIntervalMs, readLine, selected.id, selected.modeCommand, selected.sensorId, selected.sensorName, waitForAck]);
 
-  const stopMeasurement = useCallback(async () => {
+  const stopMeasurement = useCallback(async (reason: 'manual' | 'automatic' = 'manual') => {
     if (!measuringRef.current || stopRequestedRef.current) return;
     stopRequestedRef.current = true;
     setConnectionState('checking');
-    setConnectionMessage('측정을 멈추고 UNO 응답을 확인하고 있어요.');
+    setConnectionMessage(reason === 'automatic'
+      ? '설정한 시간이 되어 자동 종료를 확인하고 있어요.'
+      : '측정을 멈추고 UNO 응답을 확인하고 있어요.');
+    setMeasurementTimingStatus(reason === 'automatic' ? '자동 종료 확인 중…' : '직접 멈춤 확인 중…');
     const ackPromise = new Promise<void>((resolve, reject) => {
       stopAckRef.current = { resolve, reject };
     });
@@ -736,8 +823,27 @@ export default function App() {
       ]);
       firmwareActiveRef.current = false;
       measurementStartedAtRef.current = null;
+      measurementEndsAtRef.current = null;
+      setMeasurementEndsAt(null);
+      endLiveRun(reason);
       setConnectionState('ready');
-      setConnectionMessage('측정을 멈췄어요. 다시 시작하면 센서 모드 ACK를 새로 확인합니다.');
+      const rowCount = liveSessionRef.current?.samples.length ?? 0;
+      const hasMeasurements = rowCount > 0;
+      setLiveRunOutcome(hasMeasurements ? (reason === 'automatic' ? 'completed' : 'stopped') : 'interrupted');
+      setConnectionMessage(reason === 'automatic'
+        ? hasMeasurements
+          ? `${durationLabel(measurementDurationMs)} 측정이 완료됐어요. 마지막 기록 ${rowCount.toLocaleString('ko-KR')}행을 확인하세요.`
+          : `${durationLabel(measurementDurationMs)} 시간이 끝났지만 유효한 센서 측정값은 없어요. 배선과 센서를 확인해 주세요.`
+        : hasMeasurements
+          ? '측정을 멈췄어요. 다시 시작하면 센서 설정과 ACK를 새로 확인합니다.'
+          : '측정을 멈췄지만 유효한 센서 측정값은 없어요. 배선과 센서를 확인해 주세요.');
+      setMeasurementTimingStatus(reason === 'automatic'
+        ? hasMeasurements
+          ? `${durationLabel(measurementDurationMs)} 측정 완료 · 마지막 기록 ${rowCount.toLocaleString('ko-KR')}행`
+          : `${durationLabel(measurementDurationMs)} 시간 종료 · 유효 측정값 없음`
+        : hasMeasurements
+          ? `직접 멈춤 · 마지막 기록 ${rowCount.toLocaleString('ko-KR')}행`
+          : '직접 멈춤 · 유효 측정값 없음');
       setSamples([]);
       setFreshnessMessage('');
       measurementStaleRef.current = false;
@@ -745,6 +851,10 @@ export default function App() {
     } catch (error) {
       measuringRef.current = false;
       firmwareActiveRef.current = false;
+      measurementEndsAtRef.current = null;
+      setMeasurementEndsAt(null);
+      endLiveRun('stop-error');
+      setLiveRunOutcome('interrupted');
       await closeSerial();
       setConnectionState('error');
       setConnectionMessage('UNO의 STOP 응답을 확인하지 못했어요. 연결을 해제했으니 USB와 펌웨어를 확인한 뒤 다시 연결해 주세요.');
@@ -753,11 +863,19 @@ export default function App() {
       measurementStaleRef.current = true;
       setMeasurementStale(true);
       setDiagnostic(`STOP 오류: ${error instanceof Error ? error.message : 'unknown'}`);
+      setMeasurementTimingStatus('종료 응답을 확인하지 못했어요. 완료된 측정으로 표시하지 않습니다.');
     } finally {
       stopRequestedRef.current = false;
       stopAckRef.current = null;
     }
-  }, [closeSerial, send]);
+  }, [closeSerial, endLiveRun, measurementDurationMs, send]);
+
+  useEffect(() => {
+    if (connectionState !== 'measuring' || measurementEndsAt === null || freshnessTick < measurementEndsAt) return;
+    if (autoStopRequestedRef.current || stopRequestedRef.current) return;
+    autoStopRequestedRef.current = true;
+    void stopMeasurement('automatic');
+  }, [connectionState, freshnessTick, measurementEndsAt, stopMeasurement]);
 
   const showDemo = useCallback(() => {
     const demoByKey: Record<string, number> = {
@@ -844,6 +962,11 @@ export default function App() {
         runId: liveRun.id,
         experimentPackId: liveRun.experimentPackId,
         sensorPackId: liveRun.sensorPackId,
+        requestedIntervalMs: liveRun.requestedIntervalMs,
+        requestedDurationMs: liveRun.requestedDurationMs,
+        startedAt: liveRun.startedAt,
+        endedAt: liveRun.endedAt,
+        stopReason: liveRun.stopReason,
       }, liveRun.samples);
       const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
       const link = document.createElement('a');
@@ -855,7 +978,7 @@ export default function App() {
       window.setTimeout(() => URL.revokeObjectURL(url), 0);
       setLiveCsvStatus(liveRun.truncated
         ? `${liveRun.samples.length.toLocaleString('ko-KR')}행 CSV를 만들었어요. 최대 행 수 이후 값은 포함되지 않았어요.`
-        : `${liveRun.samples.length.toLocaleString('ko-KR')}행의 현재 측정 CSV를 만들었어요.`);
+        : `${liveRun.samples.length.toLocaleString('ko-KR')}행의 이번 측정 CSV를 만들었어요.`);
     } catch (error) {
       setLiveCsvStatus(error instanceof Error ? `CSV 실패: ${error.message}` : '현재 측정 CSV를 만들지 못했어요.');
     }
@@ -865,9 +988,17 @@ export default function App() {
     if (experiment.id === selected.id) return;
     if (connected) void disconnect();
     setSelectedId(experiment.id);
+    const nextInterval = DEFAULT_SENSOR_INTERVAL_MS[experiment.sensorId];
+    appliedIntervalMsRef.current = nextInterval;
+    setMeasurementIntervalMs(nextInterval);
+    setMeasurementDurationMs(0);
+    measurementEndsAtRef.current = null;
+    setMeasurementEndsAt(null);
+    setMeasurementTimingStatus('새 센서의 기본 측정 설정을 적용했어요.');
     setSamples([]);
     setHistory([]);
     liveSessionRef.current = null;
+    setLiveRunOutcome('none');
     setLiveCsvCount(0);
     setLiveCsvStatus('');
     setFreshnessMessage('');
@@ -979,13 +1110,21 @@ export default function App() {
               samples={visibleSamples}
               history={history}
               onStart={() => void startMeasurement()}
-              onStop={stopMeasurement}
+              onStop={() => void stopMeasurement('manual')}
               onDemo={showDemo}
               liveCsvCount={liveCsvCount}
               liveCsvStatus={liveCsvStatus}
               onDownloadLiveCsv={downloadLiveCsv}
               freshnessMessage={freshnessMessage}
               measurementStale={measurementStale}
+              measurementIntervalMs={measurementIntervalMs}
+              measurementDurationMs={measurementDurationMs}
+              measurementRemainingMs={measurementEndsAt === null ? null : Math.max(0, measurementEndsAt - freshnessTick)}
+              timingLocked={connectionState === 'measuring' || connectionState === 'checking'}
+              timingStatus={measurementTimingStatus}
+              liveRunOutcome={liveRunOutcome}
+              onIntervalChange={setMeasurementIntervalMs}
+              onDurationChange={setMeasurementDurationMs}
             />
 
             <section className="workflow-panel dashboard-panel" id="workflow" aria-labelledby="workflow-title">

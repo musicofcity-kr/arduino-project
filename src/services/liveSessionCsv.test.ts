@@ -3,7 +3,16 @@ import type { MeasurementSample } from '../components/types';
 import { fitCompleteLiveFrame, LiveSessionCsvError, liveSessionFilename, liveSessionSamplesToCsv } from './liveSessionCsv';
 
 const receivedAt = Date.parse('2026-08-13T04:00:00.000Z');
-const context = { runId: '=unsafe-run', experimentPackId: 'humidity-weather', sensorPackId: 'dht11' as const };
+const context = {
+  runId: '=unsafe-run',
+  experimentPackId: 'humidity-weather',
+  sensorPackId: 'dht11' as const,
+  requestedIntervalMs: 5_000,
+  requestedDurationMs: 60_000,
+  startedAt: '2026-08-13T04:00:00.000Z',
+  endedAt: '2026-08-13T04:01:00.250Z',
+  stopReason: 'automatic' as const,
+};
 
 function raw(key: string, value: number, unit: string, timestampMs: number): MeasurementSample {
   return {
@@ -29,9 +38,14 @@ describe('live session CSV', () => {
     ]);
 
     expect(csv.startsWith('\uFEFFdatasetKind,runId')).toBe(true);
-    expect(csv).toContain("live-session,'=unsafe-run,humidity-weather,dht11,1,raw,temperature,29.9,°C,1000");
-    expect(csv).toContain('live-session,\'=unsafe-run,humidity-weather,dht11,2,raw,humidity,39.4,%RH,1000');
+    expect(csv).toContain("live-session,'=unsafe-run,humidity-weather,dht11,5000,60000,timed,2026-08-13T04:00:00.000Z,2026-08-13T04:01:00.250Z,automatic,1,raw,temperature,29.9,°C,1000");
+    expect(csv).toContain('live-session,\'=unsafe-run,humidity-weather,dht11,5000,60000,timed,2026-08-13T04:00:00.000Z,2026-08-13T04:01:00.250Z,automatic,2,raw,humidity,39.4,%RH,1000');
     expect(csv.endsWith('\r\n')).toBe(true);
+  });
+
+  it('marks open-ended runs as manual while retaining requested cadence', () => {
+    const csv = liveSessionSamplesToCsv({ ...context, requestedDurationMs: null, endedAt: null, stopReason: 'running' }, [raw('temperature', 23, '°C', 1)]);
+    expect(csv).toContain('dht11,5000,,continuous,2026-08-13T04:00:00.000Z,,running,1,raw');
   });
 
   it('preserves normalized HC-SR04 raw units and derived provenance', () => {

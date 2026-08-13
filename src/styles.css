@@ -97,7 +97,7 @@ a { color: inherit; }
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(520px, 1.28fr) 294px minmax(450px, 1fr);
-  grid-template-rows: 400px 176px minmax(198px, 1fr);
+  grid-template-rows: minmax(470px, auto) 176px minmax(198px, 1fr);
   grid-template-areas:
     "hero sensor measurement"
     "workflow simulation simulation"
@@ -187,6 +187,14 @@ a { color: inherit; }
 .source-demo { color: #8b5517; background: #fff0d8; border-color: #ebd1a7; }
 .source-none { color: #687386; background: #edf0f4; border-color: #dce1e8; }
 .freshness-warning { margin: 6px 0 0; padding: 6px 8px; border-radius: 6px; color: #983738; background: #fde9e7; font-size: 9px; }
+.measurement-timing { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; margin: 7px 0 0; padding: 7px 8px; border: 1px solid #dce4ef; border-radius: 7px; background: #f8fbff; }
+.measurement-timing legend { padding: 0 4px; color: #42536d; font-size: 10px; font-weight: 850; }
+.measurement-timing label { display: grid; min-width: 0; gap: 3px; color: #536176; font-size: 9px; font-weight: 750; }
+.measurement-timing select { width: 100%; min-width: 0; min-height: 36px; padding: 0 8px; border: 1px solid #bdcbe0; border-radius: 6px; color: #26364d; background: #fff; font: inherit; }
+.measurement-timing select:disabled { color: #68758a; background: #edf1f6; opacity: 1; }
+.measurement-timing p { grid-column: 1 / -1; margin: 0; color: #718097; font-size: 8px; line-height: 1.35; }
+.measurement-timer { grid-column: 1 / -1; color: #1458aa; font-size: 10px; font-weight: 850; }
+.measurement-timing-status { grid-column: 1 / -1; color: #52647d; font-size: 9px; line-height: 1.35; }
 .dashboard-measure-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 7px; }
 .dashboard-measure-actions .button { flex: 0 0 auto; min-height: 31px; }
 .measure-button { min-width: 135px; }
@@ -305,7 +313,7 @@ circle.live-chart-line { fill: var(--brand); }
 @media (max-width: 1380px) {
   .topbar { grid-template-columns: minmax(290px, 1fr) auto; }
   .topbar-actions { display: none; }
-  .dashboard-grid { grid-template-columns: minmax(470px, 1.15fr) 270px minmax(400px, 1fr); }
+  .dashboard-grid { grid-template-columns: minmax(400px, 1.15fr) 250px minmax(350px, 1fr); }
   .brand strong { font-size: 17px; }
 }
 
@@ -320,7 +328,7 @@ circle.live-chart-line { fill: var(--brand); }
   .dashboard-main { overflow: visible; }
   .dashboard-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: 304px 400px 176px 210px 210px;
+    grid-template-rows: 304px minmax(470px, auto) 176px 210px 210px;
     grid-template-areas:
       "hero hero"
       "sensor measurement"
@@ -351,6 +359,10 @@ circle.live-chart-line { fill: var(--brand); }
   .mode-card { display: none; }
   .mode-card.is-active { display: grid; }
   .sensor-panel, .dashboard-measurement { min-height: 304px; }
+  .measurement-timing { grid-template-columns: 1fr; }
+  .measurement-timing label { font-size: 12px; }
+  .measurement-timing select { min-height: 44px; font-size: 16px; }
+  .measurement-timing p, .measurement-timer, .measurement-timing-status { font-size: 12px; }
   .dashboard-measure-actions { display: grid; grid-template-columns: 1fr; }
   .dashboard-measure-actions .button, .dashboard-measure-actions .text-button { width: 100%; min-height: 44px; font-size: 12px; }
   .record-buttons .button { min-height: 44px; font-size: 12px; }

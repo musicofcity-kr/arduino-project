@@ -7,6 +7,11 @@ export interface LiveSessionCsvContext {
   runId: string;
   experimentPackId: string;
   sensorPackId: StudentExperiment['sensorId'];
+  requestedIntervalMs: number;
+  requestedDurationMs: number | null;
+  startedAt: string;
+  endedAt: string | null;
+  stopReason: 'running' | 'manual' | 'automatic' | 'disconnect' | 'transport-timeout' | 'serial-error' | 'stop-error';
 }
 
 export function fitCompleteLiveFrame(
@@ -42,12 +47,26 @@ export function liveSessionSamplesToCsv(
 ): string {
   const exportable = samples.filter((sample) => sample.source === 'real' || sample.source === 'derived');
   if (!exportable.length) throw new LiveSessionCsvError('EMPTY_LIVE_SESSION');
+  if (
+    !Number.isInteger(context.requestedIntervalMs) || context.requestedIntervalMs <= 0 ||
+    (context.requestedDurationMs !== null && (!Number.isInteger(context.requestedDurationMs) || context.requestedDurationMs <= 0)) ||
+    !Number.isFinite(Date.parse(context.startedAt)) ||
+    (context.endedAt !== null && !Number.isFinite(Date.parse(context.endedAt)))
+  ) {
+    throw new LiveSessionCsvError('INVALID_LIVE_SAMPLE');
+  }
 
   const rows: unknown[][] = [[
     'datasetKind',
     'runId',
     'experimentPackId',
     'sensorPackId',
+    'requestedIntervalMs',
+    'requestedDurationMs',
+    'durationMode',
+    'startedAt',
+    'endedAt',
+    'stopReason',
     'rowIndex',
     'provenance',
     'metric',
@@ -87,6 +106,12 @@ export function liveSessionSamplesToCsv(
       context.runId,
       context.experimentPackId,
       context.sensorPackId,
+      context.requestedIntervalMs,
+      context.requestedDurationMs,
+      context.requestedDurationMs === null ? 'continuous' : 'timed',
+      context.startedAt,
+      context.endedAt,
+      context.stopReason,
       index + 1,
       sample.source === 'real' ? 'raw' : 'derived',
       sample.key,
