@@ -118,8 +118,24 @@ const BOOT_HEARTBEAT_TIMEOUT_MS = 5000;
 const PING_ACK_TIMEOUT_MS = 1800;
 const MODE_ACK_TIMEOUT_MS = 5000;
 const STOP_ACK_TIMEOUT_MS = 3000;
-const FRESH_VALUE_MS = 3000;
+const SENSOR_FRESH_MS: Readonly<Record<SensorPackId, number>> = {
+  dht11: 5000,
+  'hc-sr04': 3000,
+  ldr: 3000,
+};
+const TRANSPORT_LIVE_MS = 7000;
+const RESUME_GRACE_MS = 5000;
 const MAX_LINE_BUFFER = 4096;
+
+const RECOVERABLE_DEVICE_ERRORS: Readonly<Record<SensorPackId, ReadonlySet<string>>> = {
+  dht11: new Set(['DHT11_INVALID_READ']),
+  'hc-sr04': new Set(['HC_SR04_TIMEOUT']),
+  ldr: new Set(['LDR_INVALID_READ']),
+};
+
+function isRecoverableDeviceError(sensorId: SensorPackId, code: string): boolean {
+  return RECOVERABLE_DEVICE_ERRORS[sensorId].has(code);
+}
 
 interface LiveSessionRun {
   id: string;
@@ -218,6 +234,7 @@ export default function App() {
   const [history, setHistory] = useState<MeasurementSample[]>([]);
   const [freshnessTick, setFreshnessTick] = useState(Date.now());
   const [freshnessMessage, setFreshnessMessage] = useState('');
+  const [measurementStale, setMeasurementStale] = useState(false);
   const [rawLine, setRawLine] = useState('아직 수신한 메시지가 없습니다.');
   const [diagnostic, setDiagnostic] = useState('대기');
   const [recordStatus, setRecordStatus] = useState('');
@@ -236,6 +253,10 @@ export default function App() {
   const stopRequestedRef = useRef(false);
   const stopAckRef = useRef<{ resolve: () => void; reject: (error: Error) => void } | null>(null);
   const measurementStartedAtRef = useRef<number | null>(null);
+  const lastMeasurementAtRef = useRef<number | null>(null);
+  const lastTransportAtRef = useRef<number | null>(null);
+  const resumeGraceUntilRef = useRef(0);
+  const measurementStaleRef = useRef(false);
   const ldrReferenceRef = useRef<RawMeasurement | null>(null);
   const previousDistanceRef = useRef<RawMeasurement | null>(null);
   const anonymousSessionRef = useRef<string | null>(null);
@@ -246,7 +267,9 @@ export default function App() {
     ? 3
     : selected ? 2 : 1;
   const connected = connectionState === 'ready' || connectionState === 'measuring';
-  const visibleSamples = samples.filter((sample) => sample.source === 'demo' || freshnessTick - sample.receivedAt <= FRESH_VALUE_MS);
+  const visibleSamples = samples.filter((sample) =>
+    sample.source === 'demo' || freshnessTick - sample.receivedAt <= SENSOR_FRESH_MS[selected.sensorId]
+  );
 
   useEffect(() => {
     const timer = window.setInterval(() => setFreshnessTick(Date.now()), 1000);
@@ -279,10 +302,14 @@ export default function App() {
               }),
             ])
           : await readPromise;
+      } catch (error) {
+        const timedOut = error instanceof Error && error.message === 'ACK_TIMEOUT';
+        if (!timedOut && pendingReadRef.current === readPromise) pendingReadRef.current = null;
+        throw error;
       } finally {
         if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       }
-      pendingReadRef.current = null;
+      if (pendingReadRef.current === readPromise) pendingReadRef.current = null;
       if (result.done) throw new Error('SERIAL_CLOSED');
       if (result.value) {
         const nextBuffer = lineBufferRef.current + decoder.decode(result.value, { stream: true }).replace(/\r/g, '');
@@ -368,6 +395,9 @@ export default function App() {
     firmwareActiveRef.current = false;
     stopRequestedRef.current = false;
     measurementStartedAtRef.current = null;
+    lastMeasurementAtRef.current = null;
+    lastTransportAtRef.current = null;
+    resumeGraceUntilRef.current = 0;
     const reader = readerRef.current;
     const writer = writerRef.current;
     const port = portRef.current;
@@ -382,27 +412,52 @@ export default function App() {
     lineBufferRef.current = '';
   }, []);
 
+  const markMeasurementStale = useCallback((message: string) => {
+    if (!measurementStaleRef.current) {
+      measurementStaleRef.current = true;
+      setMeasurementStale(true);
+      setSamples([]);
+      previousDistanceRef.current = null;
+    }
+    setFreshnessMessage(message);
+  }, []);
+
   useEffect(() => {
-    if (connectionState !== 'measuring') return;
-    const latestLiveAt = samples
-      .filter((sample) => sample.source === 'real' || sample.source === 'derived')
-      .reduce((latest, sample) => Math.max(latest, sample.receivedAt), 0);
-    const freshnessBoundary = latestLiveAt || measurementStartedAtRef.current;
-    if (freshnessBoundary !== null && freshnessTick - freshnessBoundary >= FRESH_VALUE_MS) {
+    if (connectionState !== 'measuring' || document.hidden || freshnessTick < resumeGraceUntilRef.current) return;
+    const measurementBoundary = lastMeasurementAtRef.current ?? measurementStartedAtRef.current;
+    if (measurementBoundary !== null && freshnessTick - measurementBoundary >= SENSOR_FRESH_MS[selected.sensorId]) {
+      markMeasurementStale('현재값 없음 · 센서는 연결되어 있고 새 측정값을 기다리고 있어요. 그래프와 CSV 기록은 유지됩니다.');
+    }
+    const transportBoundary = lastTransportAtRef.current ?? measurementStartedAtRef.current;
+    if (transportBoundary !== null && freshnessTick - transportBoundary >= TRANSPORT_LIVE_MS) {
       measuringRef.current = false;
       firmwareActiveRef.current = false;
       measurementStartedAtRef.current = null;
       setSamples([]);
-      setHistory([]);
-      setFreshnessMessage('현재값 없음 · 새 센서값이 3초 동안 오지 않아 연결을 종료했어요.');
+      measurementStaleRef.current = true;
+      setMeasurementStale(true);
+      setFreshnessMessage('현재값 없음 · 마지막 측정 기록과 CSV는 유지됩니다.');
       setConnectionState('error');
-      setConnectionMessage('새 센서값이 3초 동안 오지 않았어요. 현재값은 모두 지웠습니다. USB를 다시 꽂고 배선을 확인한 뒤 재연결해 주세요.');
-      setDiagnostic('측정 오류: SENSOR_DATA_TIMEOUT');
+      setConnectionMessage('UNO의 heartbeat도 7초 동안 받지 못해 연결을 종료했어요. USB 케이블과 포트를 확인한 뒤 재연결해 주세요.');
+      setDiagnostic('측정 오류: TRANSPORT_TIMEOUT');
       void closeSerial();
-    } else if (latestLiveAt > 0) {
-      setFreshnessMessage('');
     }
-  }, [closeSerial, connectionState, freshnessTick, samples]);
+  }, [closeSerial, connectionState, freshnessTick, markMeasurementStale, selected.sensorId]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        if (measuringRef.current) {
+          markMeasurementStale('현재값 없음 · 화면이 다시 활성화되면 새 센서값을 확인합니다. 그래프와 CSV 기록은 유지됩니다.');
+        }
+        return;
+      }
+      resumeGraceUntilRef.current = Date.now() + RESUME_GRACE_MS;
+      setFreshnessTick(Date.now());
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [markMeasurementStale]);
 
   useEffect(() => () => { void closeSerial(); }, [closeSerial]);
 
@@ -410,6 +465,8 @@ export default function App() {
     setSamples([]);
     setHistory([]);
     setFreshnessMessage('');
+    measurementStaleRef.current = false;
+    setMeasurementStale(false);
     ldrReferenceRef.current = null;
     previousDistanceRef.current = null;
     const serial = (navigator as Navigator & { serial?: SerialNavigatorLike }).serial;
@@ -581,20 +638,35 @@ export default function App() {
       previousDistanceRef.current = null;
       measuringRef.current = true;
       receiveLoopStarted = true;
-      measurementStartedAtRef.current = Date.now();
+      const startedAt = Date.now();
+      measurementStartedAtRef.current = startedAt;
+      lastMeasurementAtRef.current = startedAt;
+      lastTransportAtRef.current = startedAt;
+      measurementStaleRef.current = true;
+      setMeasurementStale(true);
       setConnectionState('measuring');
       setConnectionMessage('UNO에서 새 센서값을 받고 있어요.');
       while (measuringRef.current) {
         const line = await readLine();
+        const parsed = parseProtocolLine(line);
+        if (!parsed.ok) {
+          setDiagnostic(`잘못된 센서 메시지 무시: ${parsed.error.code}`);
+          continue;
+        }
+        lastTransportAtRef.current = Date.now();
         if (stopRequestedRef.current) {
-          const parsed = parseProtocolLine(line);
-          if (parsed.ok && parsed.message.kind === 'ack' && matchesAck(parsed.message, 'STOP')) {
+          if (parsed.message.kind === 'ack' && matchesAck(parsed.message, 'STOP')) {
             measuringRef.current = false;
             measurementStartedAtRef.current = null;
             stopAckRef.current?.resolve();
             break;
           }
-          if (parsed.ok && parsed.message.kind === 'error') {
+          if (parsed.message.kind === 'error') {
+            if (isRecoverableDeviceError(selected.sensorId, parsed.message.code)) {
+              markMeasurementStale(`현재값 없음 · ${selected.sensorName}의 새 읽기를 기다리고 있어요. 그래프와 CSV 기록은 유지됩니다.`);
+              setDiagnostic(`일시적 센서 읽기 실패: ${parsed.message.code}`);
+              continue;
+            }
             const error = new Error(`DEVICE_ERROR:${parsed.message.code}`);
             stopAckRef.current?.reject(error);
             throw error;
@@ -602,8 +674,20 @@ export default function App() {
           setDiagnostic('STOP과 일치하지 않는 응답을 무시함');
           continue;
         }
+        if (parsed.message.kind === 'error') {
+          if (isRecoverableDeviceError(selected.sensorId, parsed.message.code)) {
+            markMeasurementStale(`현재값 없음 · ${selected.sensorName}의 새 읽기를 기다리고 있어요. 그래프와 CSV 기록은 유지됩니다.`);
+            setDiagnostic(`일시적 센서 읽기 실패: ${parsed.message.code}`);
+            continue;
+          }
+          throw new Error(`DEVICE_ERROR:${parsed.message.code}`);
+        }
+        if (parsed.message.kind !== 'measurement') continue;
         const next = buildSamples(line);
         if (!next.length) continue;
+        lastMeasurementAtRef.current = Date.now();
+        measurementStaleRef.current = false;
+        setMeasurementStale(false);
         setSamples((previous) => {
           const keys = new Set(next.map((item) => item.key));
           return [...previous.filter((item) => !keys.has(item.key)), ...next];
@@ -628,10 +712,13 @@ export default function App() {
       setConnectionState('error');
       setConnectionMessage('측정 중 연결이 끊겼어요. 이전 값은 숨겼습니다. USB와 배선을 확인하고 다시 연결해 주세요.');
       setSamples([]);
+      measurementStaleRef.current = true;
+      setMeasurementStale(true);
+      setFreshnessMessage('현재값 없음 · 마지막 측정 기록과 CSV는 유지됩니다.');
       setDiagnostic(`수신 오류: ${error instanceof Error ? error.message : 'unknown'}`);
       await closeSerial();
     }
-  }, [buildSamples, closeSerial, connected, readLine, selected.id, selected.modeCommand, selected.sensorId, waitForAck]);
+  }, [buildSamples, closeSerial, connected, markMeasurementStale, readLine, selected.id, selected.modeCommand, selected.sensorId, selected.sensorName, waitForAck]);
 
   const stopMeasurement = useCallback(async () => {
     if (!measuringRef.current || stopRequestedRef.current) return;
@@ -653,6 +740,8 @@ export default function App() {
       setConnectionMessage('측정을 멈췄어요. 다시 시작하면 센서 모드 ACK를 새로 확인합니다.');
       setSamples([]);
       setFreshnessMessage('');
+      measurementStaleRef.current = false;
+      setMeasurementStale(false);
     } catch (error) {
       measuringRef.current = false;
       firmwareActiveRef.current = false;
@@ -661,6 +750,8 @@ export default function App() {
       setConnectionMessage('UNO의 STOP 응답을 확인하지 못했어요. 연결을 해제했으니 USB와 펌웨어를 확인한 뒤 다시 연결해 주세요.');
       setSamples([]);
       setFreshnessMessage('');
+      measurementStaleRef.current = true;
+      setMeasurementStale(true);
       setDiagnostic(`STOP 오류: ${error instanceof Error ? error.message : 'unknown'}`);
     } finally {
       stopRequestedRef.current = false;
@@ -894,6 +985,7 @@ export default function App() {
               liveCsvStatus={liveCsvStatus}
               onDownloadLiveCsv={downloadLiveCsv}
               freshnessMessage={freshnessMessage}
+              measurementStale={measurementStale}
             />
 
             <section className="workflow-panel dashboard-panel" id="workflow" aria-labelledby="workflow-title">
@@ -952,7 +1044,7 @@ export default function App() {
               <ul>
                 <li><span className={selected ? 'is-ready' : ''}><FlaskConical size={15} /></span><div><strong>탐구팩 선택</strong><small>{selected.title}</small></div></li>
                 <li><span className={connected ? 'is-ready' : ''}><Cpu size={15} /></span><div><strong>센서 연결</strong><small>현재 상태 · {connectionLabels[connectionState]}</small></div></li>
-                <li><span className={visibleSamples.length ? 'is-ready' : ''}><Waves size={15} /></span><div><strong>측정 데이터</strong><small>{visibleSamples.length ? `${visibleSamples.length}개 최신값` : '아직 측정 전'}</small></div></li>
+                <li><span className={visibleSamples.length ? 'is-ready' : ''}><Waves size={15} /></span><div><strong>측정 데이터</strong><small>{visibleSamples.length ? `${visibleSamples.length}개 최신값` : history.length ? `현재값 없음 · 마지막 기록 ${history.length}개` : '아직 측정 전'}</small></div></li>
               </ul>
               <details className="advanced-panel">
                 <summary>Advanced 진단 정보</summary>

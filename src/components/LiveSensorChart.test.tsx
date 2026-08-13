@@ -77,4 +77,18 @@ describe('LiveSensorChart', () => {
     expect(series.points[0]).toEqual(expect.objectContaining({ x: 160, value: 99 }));
     expect(Number.isFinite(series.points[0].y)).toBe(true);
   });
+
+  it('labels a stale retained trace as the last value rather than the current value', () => {
+    render(<LiveSensorChart
+      experiment={dhtExperiment}
+      history={[sample('temperature', 22, 1000), sample('humidity', 48, 1000)]}
+      connected
+      measuring
+      stale
+    />);
+
+    expect(screen.getByText('마지막 측정 기록 · 현재값 아님')).toBeInTheDocument();
+    expect(screen.getByText(/마지막 22\.0/)).toBeInTheDocument();
+    expect(screen.queryByText(/현재 22\.0/)).not.toBeInTheDocument();
+  });
 });
