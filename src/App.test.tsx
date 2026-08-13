@@ -4,6 +4,8 @@ import App, { createMeasurementDraft } from './App';
 import type { MeasurementSample, StudentExperiment } from './components/types';
 
 const textEncoder = new TextEncoder();
+const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
+const originalRevokeObjectUrl = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL');
 
 function installSerial(input: string) {
   const chunks = [textEncoder.encode(`{"type":"heartbeat","timestampMs":0}\n${input}`)];
@@ -32,7 +34,12 @@ function installSerial(input: string) {
   return { writes };
 }
 
-function installResponsiveSerial(initialHeartbeat = true, measurementModeDelayMs = 0) {
+function installResponsiveSerial(
+  initialHeartbeat = true,
+  measurementModeDelayMs = 0,
+  sensorMode: 'DHT11' | 'HC_SR04' = 'DHT11',
+  failModeAt = 0,
+) {
   const queued: Uint8Array[] = initialHeartbeat
     ? [textEncoder.encode('{"type":"heartbeat","timestampMs":0}\n')]
     : [];
@@ -59,12 +66,14 @@ function installResponsiveSerial(initialHeartbeat = true, measurementModeDelayMs
       const command = new TextDecoder().decode(value).trim();
       writes.push(`${command}\n`);
       if (command === 'PING') enqueue('ACK:PING');
-      else if (command === 'MODE:DHT11') {
+      else if (command === `MODE:${sensorMode}`) {
         modeCount += 1;
-        if (modeCount >= 2 && measurementModeDelayMs > 0) {
-          window.setTimeout(() => enqueue('ACK:MODE:DHT11'), measurementModeDelayMs);
+        if (modeCount === failModeAt) {
+          enqueue(`ERROR:${sensorMode}_INVALID_READ:test failure`);
+        } else if (modeCount >= 2 && measurementModeDelayMs > 0) {
+          window.setTimeout(() => enqueue(`ACK:MODE:${sensorMode}`), measurementModeDelayMs);
         } else {
-          enqueue('ACK:MODE:DHT11');
+          enqueue(`ACK:MODE:${sensorMode}`);
         }
       }
       else if (command === 'STOP') enqueue('ACK:STOP');
@@ -134,6 +143,11 @@ function installResettingSerial() {
 afterEach(() => {
   cleanup();
   Reflect.deleteProperty(navigator, 'serial');
+  if (originalCreateObjectUrl) Object.defineProperty(URL, 'createObjectURL', originalCreateObjectUrl);
+  else Reflect.deleteProperty(URL, 'createObjectURL');
+  if (originalRevokeObjectUrl) Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectUrl);
+  else Reflect.deleteProperty(URL, 'revokeObjectURL');
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -272,6 +286,105 @@ describe('Student Easy Mode protocol boundary', () => {
     expect(container.querySelector('.measurement-card .source-real')).toBeNull();
     expect(screen.getByText('데모 데이터입니다. 실제 센서 측정 결과가 아니에요.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '현재 결과 저장' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(0행\)/ })).toBeDisabled();
+  });
+
+  it('graphs both DHT11 raw metrics and keeps the live CSV session beyond the chart buffer', async () => {
+    const serial = installResponsiveSerial();
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    expect(await screen.findByText('측정 중')).toBeInTheDocument();
+
+    await act(async () => {
+      for (let index = 1; index <= 33; index += 1) {
+        serial.enqueue(JSON.stringify({
+          type: 'measurement',
+          sensor: 'dht11',
+          timestampMs: index * 500,
+          values: [
+            { metric: 'temperature', value: 20 + index / 10, unit: 'C' },
+            { metric: 'humidity', value: 40 + index / 10, unit: '%' },
+          ],
+        }));
+      }
+      for (let index = 0; index < 100; index += 1) await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('live-chart-temperature')).toBeInTheDocument();
+    expect(screen.getByTestId('live-chart-humidity')).toBeInTheDocument();
+    expect(screen.getAllByText(/n=24/)).toHaveLength(2);
+    const liveCsvButton = screen.getByRole('button', { name: /현재 측정 CSV 받기 \(66행\)/ });
+    expect(liveCsvButton).toBeEnabled();
+
+    const createObjectUrl = vi.fn(() => 'blob:live-session');
+    const revokeObjectUrl = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectUrl });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectUrl });
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    fireEvent.click(liveCsvButton);
+    await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 0)); });
+    expect(createObjectUrl).toHaveBeenCalledWith(expect.objectContaining({ type: 'text/csv;charset=utf-8' }));
+    expect(anchorClick).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:live-session');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(screen.getByText('66행의 현재 측정 CSV를 만들었어요.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /측정 멈추기/ }));
+    expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
+    expect(screen.getByText(/마지막 측정 기록 · 현재값 아님/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(66행\)/ })).toBeEnabled();
+  });
+
+  it('keeps the completed live CSV when the next MODE check fails', async () => {
+    const serial = installResponsiveSerial(true, 0, 'DHT11', 3);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    expect(await screen.findByText('측정 중')).toBeInTheDocument();
+    await act(async () => {
+      serial.enqueue('{"type":"measurement","sensor":"dht11","timestampMs":1000,"values":[{"metric":"temperature","value":23,"unit":"C"},{"metric":"humidity","value":50,"unit":"%"}]}');
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /측정 멈추기/ }));
+    expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    expect(await screen.findByText('연결 확인 필요')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(2행\)/ })).toBeEnabled();
+    expect(screen.getByText(/마지막 측정 기록 · 현재값 아님/)).toBeInTheDocument();
+  });
+
+  it('starts HC-SR04 derived calculations from a clean baseline after STOP', async () => {
+    const serial = installResponsiveSerial(true, 0, 'HC_SR04');
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /거리와 운동 탐구 선택/ }));
+    fireEvent.click(screen.getByRole('button', { name: /HC-SR04 연결하기/ }));
+    expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    expect(await screen.findByText('측정 중')).toBeInTheDocument();
+    await act(async () => {
+      serial.enqueue('{"type":"measurement","sensor":"hc-sr04","timestampMs":1000,"values":[{"metric":"distance","value":20,"unit":"cm"}]}');
+      serial.enqueue('{"type":"measurement","sensor":"hc-sr04","timestampMs":1500,"values":[{"metric":"distance","value":18,"unit":"cm"}]}');
+      for (let index = 0; index < 12; index += 1) await Promise.resolve();
+    });
+    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(3행\)/ })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: /측정 멈추기/ }));
+    expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /바로 측정 시작/ }));
+    expect(await screen.findByText('측정 중')).toBeInTheDocument();
+    await act(async () => {
+      serial.enqueue('{"type":"measurement","sensor":"hc-sr04","timestampMs":2000,"values":[{"metric":"distance","value":17,"unit":"cm"}]}');
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    });
+    expect(screen.getByRole('button', { name: /현재 측정 CSV 받기 \(1행\)/ })).toBeEnabled();
   });
 
   it('builds exact provenance-preserving payloads for all three packs', () => {

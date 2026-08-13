@@ -16,6 +16,12 @@ import { WiringGuide } from './components/WiringGuide';
 import { createSessionApi, measurementsToCsv } from './services/sessionApi';
 import type { MeasurementDraft } from './services/sessionApi';
 import {
+  LIVE_SESSION_MAX_ROWS,
+  fitCompleteLiveFrame,
+  liveSessionFilename,
+  liveSessionSamplesToCsv,
+} from './services/liveSessionCsv';
+import {
   Activity,
   BarChart3,
   Bell,
@@ -115,6 +121,18 @@ const STOP_ACK_TIMEOUT_MS = 3000;
 const FRESH_VALUE_MS = 3000;
 const MAX_LINE_BUFFER = 4096;
 
+interface LiveSessionRun {
+  id: string;
+  experimentPackId: string;
+  sensorPackId: StudentExperiment['sensorId'];
+  samples: MeasurementSample[];
+  truncated: boolean;
+}
+
+function createLiveRunId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `run-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 const connectionLabels: Record<ConnectionState, string> = {
   idle: '센서 연결 전',
   requesting: '기기 선택 중',
@@ -205,6 +223,8 @@ export default function App() {
   const [recordStatus, setRecordStatus] = useState('');
   const [recordBusy, setRecordBusy] = useState(false);
   const [hasSavedRecords, setHasSavedRecords] = useState(false);
+  const [liveCsvCount, setLiveCsvCount] = useState(0);
+  const [liveCsvStatus, setLiveCsvStatus] = useState('');
 
   const portRef = useRef<SerialPortLike | null>(null);
   const readerRef = useRef<SerialReaderLike | null>(null);
@@ -219,6 +239,7 @@ export default function App() {
   const ldrReferenceRef = useRef<RawMeasurement | null>(null);
   const previousDistanceRef = useRef<RawMeasurement | null>(null);
   const anonymousSessionRef = useRef<string | null>(null);
+  const liveSessionRef = useRef<LiveSessionRun | null>(null);
   const sessionApi = useMemo(() => createSessionApi(), []);
 
   const currentStep: 1 | 2 | 3 = connectionState === 'ready' || connectionState === 'measuring'
@@ -537,8 +558,6 @@ export default function App() {
   const startMeasurement = useCallback(async () => {
     if (!connected || measuringRef.current) return;
     let receiveLoopStarted = false;
-    setSamples([]);
-    setHistory([]);
     setFreshnessMessage('새 센서값을 기다리고 있어요.');
     try {
       if (!firmwareActiveRef.current) {
@@ -547,6 +566,19 @@ export default function App() {
         await waitForAck(selected.modeCommand, 'MODE', selected.sensorId, MODE_ACK_TIMEOUT_MS);
         firmwareActiveRef.current = true;
       }
+      setSamples([]);
+      setHistory([]);
+      liveSessionRef.current = {
+        id: createLiveRunId(),
+        experimentPackId: selected.id,
+        sensorPackId: selected.sensorId,
+        samples: [],
+        truncated: false,
+      };
+      setLiveCsvCount(0);
+      setLiveCsvStatus('실측 데이터가 들어오면 현재 측정 CSV를 받을 수 있어요.');
+      ldrReferenceRef.current = null;
+      previousDistanceRef.current = null;
       measuringRef.current = true;
       receiveLoopStarted = true;
       measurementStartedAtRef.current = Date.now();
@@ -577,6 +609,16 @@ export default function App() {
           return [...previous.filter((item) => !keys.has(item.key)), ...next];
         });
         setHistory((previous) => [...previous, ...next].slice(-64));
+        const liveRun = liveSessionRef.current;
+        if (liveRun) {
+          const fittedFrame = fitCompleteLiveFrame(liveRun.samples.length, next, LIVE_SESSION_MAX_ROWS);
+          liveRun.samples.push(...fittedFrame.samples);
+          if (fittedFrame.truncated) {
+            liveRun.truncated = true;
+            setLiveCsvStatus(`CSV는 최대 ${LIVE_SESSION_MAX_ROWS.toLocaleString('ko-KR')}행까지만 포함해요. 측정을 나누어 진행해 주세요.`);
+          }
+          setLiveCsvCount(liveRun.samples.length);
+        }
         setFreshnessMessage('');
       }
     } catch (error) {
@@ -589,7 +631,7 @@ export default function App() {
       setDiagnostic(`수신 오류: ${error instanceof Error ? error.message : 'unknown'}`);
       await closeSerial();
     }
-  }, [buildSamples, closeSerial, connected, readLine, selected.modeCommand, selected.sensorId, waitForAck]);
+  }, [buildSamples, closeSerial, connected, readLine, selected.id, selected.modeCommand, selected.sensorId, waitForAck]);
 
   const stopMeasurement = useCallback(async () => {
     if (!measuringRef.current || stopRequestedRef.current) return;
@@ -688,8 +730,10 @@ export default function App() {
       const link = document.createElement('a');
       link.href = url;
       link.download = `sensor-records-${anonymousSessionRef.current}.csv`;
+      document.body.append(link);
       link.click();
-      URL.revokeObjectURL(url);
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
       setRecordStatus('저장 기록 CSV를 만들었어요. 다운로드를 확인해 주세요.');
     } catch (error) {
       setRecordStatus(error instanceof Error ? `CSV 실패: ${error.message}` : 'CSV를 만들지 못했어요.');
@@ -698,14 +742,45 @@ export default function App() {
     }
   }, [hasSavedRecords, sessionApi]);
 
+  const downloadLiveCsv = useCallback(() => {
+    const liveRun = liveSessionRef.current;
+    if (!liveRun?.samples.length) {
+      setLiveCsvStatus('CSV로 받을 실측 데이터가 아직 없어요.');
+      return;
+    }
+    try {
+      const csv = liveSessionSamplesToCsv({
+        runId: liveRun.id,
+        experimentPackId: liveRun.experimentPackId,
+        sensorPackId: liveRun.sensorPackId,
+      }, liveRun.samples);
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = liveSessionFilename(liveRun.experimentPackId);
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setLiveCsvStatus(liveRun.truncated
+        ? `${liveRun.samples.length.toLocaleString('ko-KR')}행 CSV를 만들었어요. 최대 행 수 이후 값은 포함되지 않았어요.`
+        : `${liveRun.samples.length.toLocaleString('ko-KR')}행의 현재 측정 CSV를 만들었어요.`);
+    } catch (error) {
+      setLiveCsvStatus(error instanceof Error ? `CSV 실패: ${error.message}` : '현재 측정 CSV를 만들지 못했어요.');
+    }
+  }, []);
+
   const chooseExperiment = useCallback((experiment: StudentExperiment) => {
     if (experiment.id === selected.id) return;
     if (connected) void disconnect();
     setSelectedId(experiment.id);
     setSamples([]);
     setHistory([]);
+    liveSessionRef.current = null;
+    setLiveCsvCount(0);
+    setLiveCsvStatus('');
     setFreshnessMessage('');
-    window.setTimeout(() => document.getElementById('setup')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+    window.setTimeout(() => document.getElementById('setup')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }), 80);
   }, [connected, disconnect, selected.id]);
 
   return (
@@ -815,6 +890,9 @@ export default function App() {
               onStart={() => void startMeasurement()}
               onStop={stopMeasurement}
               onDemo={showDemo}
+              liveCsvCount={liveCsvCount}
+              liveCsvStatus={liveCsvStatus}
+              onDownloadLiveCsv={downloadLiveCsv}
               freshnessMessage={freshnessMessage}
             />
 
