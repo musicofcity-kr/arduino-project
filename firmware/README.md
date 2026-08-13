@@ -38,4 +38,4 @@ LDR의 `relativeLight(count)`는 0~1023 ADC 원시 계수이며 보정된 lux가
 - 프로그램 저장 공간: 8,340 bytes / 32,256 bytes (25%)
 - 동적 메모리: 814 bytes / 2,048 bytes (39%)
 
-기존 펌웨어의 실제 UNO 업로드·`ACK:PING`, DHT11과 HC-SR04의 fresh read 및 연속 측정은 확인됐다. DHT11 확인값은 온도 28.7 C, 상대습도 42.6~42.7%였고 HC-SR04 확인값은 21건 모두 7.82 cm였다. 이번 가변 간격 명령은 UNO 대상 컴파일과 자동 계약까지만 확인했으며 실제 보드 업로드·주기 실측은 아직이다. 기존 증거는 통신·반복 측정 기능 증거이지 센서 정확도·교정 또는 HC-SR04 속도 계산 증거는 아니다. LDR V3 완료는 사용자 결정에 따라 추후 검증한다. Phase 1 LDR 검증은 UI·스케치와 같은 `5V → LDR → A0 → 10 kΩ → GND` 분압 회로를 사용한다.
+2026-08-13 실제 COM7 UNO에 revision 6 가변 간격 펌웨어를 업로드했다. 같은 115200 baud 세션에서 `ACK:PING`, `ACK:INTERVAL:DHT11:2000`, `ACK:MODE:DHT11`, 유효 DHT11 측정 6건을 확인했으며 device timestamp 간격은 2000~2001 ms(평균 2000.2 ms)였다. `ACK:STOP` 이후 5.5초간 측정 0건과 heartbeat 지속도 확인했다. 이는 DHT11 2초 주기와 STOP 동작의 실제 장비 증거이지 센서 정확도·교정, DHT11 5/10초, Vercel 예약 종료·CSV 또는 HC-SR04 속도 계산 증거는 아니다. HC-SR04의 기존 확인값은 21건 모두 7.82 cm였고 거리 변화·속도 계산은 아직 미확인이다. LDR V3 완료는 사용자 결정에 따라 추후 검증한다. Phase 1 LDR 검증은 UI·스케치와 같은 `5V → LDR → A0 → 10 kΩ → GND` 분압 회로를 사용한다.

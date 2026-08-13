@@ -1,7 +1,7 @@
 ---
 document: HARDWARE_VERIFICATION_LOG
 project: Web App-based Integrated Modular Science Inquiry Workbench
-recorded_at: 2026-08-13T12:16:39+09:00
+recorded_at: 2026-08-13T17:49:10+09:00
 overall_status: ESCALATE
 completed_check: V3-03
 remaining_checks: V3-04,V3-06..V3-08
@@ -74,6 +74,15 @@ UNO 대상 툴체인 컴파일과 실제 COM7 업로드·`ACK:PING`, DHT11 V3-03
 - MODE ACK 뒤 유효 측정 4건을 수신했다: timestamp `9342`, `11343`, `13343`, `15343`; 온도 `28.7 C`; 습도 `42.7`, `42.7`, `42.7`, `42.6 %`.
 - `STOP\n` (`83,84,79,80,10`) 전송 뒤 명령 처리 직전 진행 중이던 측정 1건이 먼저 도착하고 1 ms 뒤 `ACK:STOP`을 수신했다. 이후 4초 관찰에서 heartbeat 2건만 수신되고 measurement는 0건이었다.
 - 독립 검토 판정: `V3-03 DHT11 = PASS`. 이는 통신과 fresh-read 기능 검증이며 측정 정확도나 교정을 입증하지 않는다.
+
+### 2026-08-13 revision 6 가변 간격 펌웨어 검증
+
+- 현재 `main`의 revision 6 펌웨어를 Arduino CLI 1.5.1과 `arduino:avr:uno`로 다시 컴파일했다. Flash 8,340 bytes(25%), SRAM 814 bytes(39%)였고 COM7 UNO 업로드와 플래시 검증이 exit 0으로 완료됐다.
+- 같은 COM7/115200 baud post-reset 세션에서 정확한 `PING\n` → `ACK:PING`, `SET_INTERVAL:DHT11:2000\n` → `ACK:INTERVAL:DHT11:2000`, `MODE:DHT11\n` → `ACK:MODE:DHT11`을 순서대로 확인했다. reset 경계의 부분 heartbeat 2줄은 증거에서 제외했다.
+- MODE ACK 뒤 유효 DHT11 measurement 6건을 수신했다. device timestamp는 `13863, 15863, 17863, 19863, 21864, 23864` ms였고 간격은 `2000, 2000, 2000, 2001, 2000` ms였다. 간격 최소/최대/평균은 `2000/2001/2000.2 ms`, 목표 2000 ms 대비 평균 오차는 `+0.01%`였다.
+- 온도는 `28.6, 28.7, 28.6, 28.6, 28.6, 28.6 °C`로 평균 28.62 °C였고, 상대습도 6건은 모두 33.3%였다.
+- 정확한 `STOP\n`에 `ACK:STOP`을 수신했고 이후 5.5초 동안 heartbeat는 계속됐지만 DHT11 measurement는 0건이었다.
+- 독립 검토 판정: `DHT11 2000 ms interval 계약 및 STOP 억제 = PASS (V3)`. 이는 실제 펌웨어 명령·주기·DHT11 수신·정지 증거이며 센서 교정 정확도, 5/10초 간격, 장시간 안정성, Vercel 자동 종료·CSV 흐름까지 입증하지 않는다.
 
 ## V3-04 HC-SR04 사전 시도
 
