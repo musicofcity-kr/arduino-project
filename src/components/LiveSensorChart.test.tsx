@@ -39,6 +39,8 @@ describe('LiveSensorChart', () => {
 
     expect(screen.getByTestId('live-chart-temperature')).toBeInTheDocument();
     expect(screen.getByTestId('live-chart-humidity')).toBeInTheDocument();
+    expect(document.querySelector('.live-chart-series-list')).toHaveAttribute('data-layout', 'multiple');
+    expect(document.querySelector('.live-chart-series-list')).toHaveAttribute('data-series-count', '2');
     expect(screen.getByText(/온도 \(°C\)/)).toBeInTheDocument();
     expect(screen.getByText(/상대습도 \(%RH\)/)).toBeInTheDocument();
     expect(screen.getAllByText(/n=3/)).toHaveLength(2);
@@ -62,6 +64,48 @@ describe('LiveSensorChart', () => {
     const velocity = { ...sample('velocity', -0.4, 1000), source: 'derived' as const, unit: 'm/s' };
     const model = buildLiveChartSeries(motion, [rawDistance, velocity]);
     expect(model.map((item) => item.key)).toEqual(['distance']);
+  });
+
+  it.each([1, 2, 4])('keeps all %i rendered raw series in a count-aware layout', (count) => {
+    const experiment: StudentExperiment = {
+      ...dhtExperiment,
+      measurements: Array.from({ length: count }, (_, index) => ({
+        key: `metric-${index}`,
+        label: `지표 ${index + 1}`,
+        unit: 'count',
+        precision: 0,
+        kind: 'raw' as const,
+      })),
+    };
+    const history: MeasurementSample[] = experiment.measurements.flatMap((definition, index) => [
+      { ...sample(definition.key, index + 1, 1000), unit: definition.unit },
+      { ...sample(definition.key, index + 2, 2000), unit: definition.unit },
+    ]);
+
+    const { container } = render(
+      <LiveSensorChart experiment={experiment} history={history} connected measuring />,
+    );
+    const list = container.querySelector('.live-chart-series-list');
+    const charts = container.querySelectorAll(':scope .live-chart-series > svg[role="img"]');
+
+    expect(list).toHaveAttribute('data-layout', count === 1 ? 'single' : 'multiple');
+    expect(list).toHaveAttribute('data-series-count', String(count));
+    expect(charts).toHaveLength(count);
+    charts.forEach((chart) => {
+      expect(chart.getAttribute('aria-labelledby')?.split(' ')).toHaveLength(2);
+      expect(chart.querySelector('title')).not.toBeNull();
+      expect(chart.querySelector('desc')).not.toBeNull();
+      const points = chart.querySelector('polyline')?.getAttribute('points') ?? '';
+      for (const pair of points.split(' ').filter(Boolean)) {
+        const [x, y] = pair.split(',').map(Number);
+        expect(Number.isFinite(x)).toBe(true);
+        expect(Number.isFinite(y)).toBe(true);
+        expect(x).toBeGreaterThanOrEqual(8);
+        expect(x).toBeLessThanOrEqual(312);
+        expect(y).toBeGreaterThanOrEqual(6);
+        expect(y).toBeLessThanOrEqual(42);
+      }
+    });
   });
 
   it('does not join reset timestamps or real and demo sources, and never emits invalid coordinates', () => {

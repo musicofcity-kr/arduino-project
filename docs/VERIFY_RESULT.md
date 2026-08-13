@@ -2,58 +2,56 @@
 document: NODE_RESULT
 node: VERIFY
 verdict: PASS
-revision: 6
+revision: 7
 evidence_level: V2
-evidence_unit: 79/79
-evidence_e2e: local-production-browser-1280+390-pass+timing-boundary-regression-pass+uno-compile-pass
+evidence_unit: 82/82
+evidence_e2e: local-production-browser-1848+1280+390-single+dual-series-no-overlap+root-overflow0
 evidence_build: 1816 modules
-recorded_at: 2026-08-13T15:57:00+09:00
+recorded_at: 2026-08-14T07:52:19+09:00
 ---
 
 # VERIFY RESULT
 
 ## INPUT
 
-BUILD revision 6의 가변 센서 측정 간격, 예약 측정, 종료 경계, CSV provenance, 학생용 설정 UI.
+BUILD revision 7의 가변 그래프 수 레이아웃과 기존 센서·CSV·측정시간 계약.
 
 ## TASK
 
-프로토콜 exact correlation, 펌웨어 bounds, run 초기화, 동적 stale, 수동/자동 STOP 경합, background timer 지연에 해당하는 wall-clock jump, 0행 비완료, 이전 기록 보존, CSV 타입·시각·출처와 반응형 UI를 전체 회귀했다.
+1·2·4 raw 시리즈 렌더링, derived 제외, SVG 좌표·ARIA, 전체 앱 회귀, production build와 실제 브라우저의 패널·그래프·다음 행 bounding box를 검증했다.
 
 ## OUTPUT
 
-- `npm test`: Vitest 69/69 + Node 서버·펌웨어 10/10 = 79/79 PASS
+- `npm test`: Vitest 72/72 + Node 서버·펌웨어 10/10 = 82/82 PASS
 - `npm run build`: TypeScript + Vite PASS, 1,816 modules transformed
-- Arduino CLI 1.5.1 / `arduino:avr` 1.8.8 UNO compile PASS: flash 8,340 bytes (25%), SRAM 814 bytes (39%)
-- `PYTHONUTF8=1 python tools/check_package.py`: blocker 0 / warn 0 PASS
-- `PYTHONUTF8=1 python tools/selftest.py`: 42/42 PASS
-- 최신 local production preview: Vite overlay 없음, 본문·측정 설정·CSV UI 렌더링
-- 1280px: root horizontal overflow 0, 측정 panel clientHeight=scrollHeight=468
-- 390×844: horizontal overflow 0, panel clientHeight=scrollHeight=649, select 2개 44px/16px, action 3개 44px
+- 1848×893 DHT 2개: panel `clientHeight=scrollHeight=571`, 모든 시리즈가 panel 내부, panel bottom 645.28 < next row top 657.28
+- 1848×893 HC 1개: panel `clientHeight=scrollHeight=503`, 단일 시리즈가 panel 내부, panel bottom 577.28 < next row top 589.28
+- 1280×800 DHT 2개: panel `clientHeight=scrollHeight=608`, panel bottom 694.28 < next row top 706.28
+- 390×844 DHT 2개: panel `clientHeight=scrollHeight=897`, panel bottom 1697.91 < next row top 1709.91, 주요 버튼 3개 44px
+- 세 viewport 모두 document `scrollWidth=clientWidth`; Vite 오류 overlay 없음
 - 브라우저 콘솔 기능 오류 0; 별도 favicon 미제공에 따른 404 한 건만 확인
 
 ## PASS 조건과 판정
 
 | 조건 | 결과 | 증거 등급 |
 |---|---|---|
-| 기본 주기 호환과 센서별 preset/bounds | PASS | V2 |
-| wrong sensor/ms ACK·invalid interval fail-closed | PASS | V2 |
-| MODE ACK 뒤에만 새 run/CSV 초기화 | PASS | V2 |
-| deadline 이후 frame 제외·auto/manual STOP 1회 | PASS | V2 |
-| 0행 비완료·중단/완료 UI·이전 기록 보존 | PASS | V2 |
-| CSV numeric/null duration과 actual end metadata | PASS | V2 |
-| production build·responsive browser UI | PASS | V2 |
+| DHT 온도·습도 그래프 모두 패널 내부 표시 | PASS | V2 |
+| HC/LDR형 단일 raw 그래프가 전체 폭 사용 | PASS | V2 |
+| 1·2·4 시리즈 DOM·layout count·유한 SVG 좌표 | PASS | V2 |
+| 데스크톱·모바일 패널 겹침과 가로 overflow 0 | PASS | V2 |
+| 기존 통신·시간·CSV·서버·펌웨어 회귀 | PASS | V2 |
+| production build와 오류 overlay 없음 | PASS | V2 |
 
 ## Negative / Fail-closed 검증
 
-설정 ACK 불일치나 실패는 MODE와 새 run을 시작하지 않는다. 종료 이후 frame은 화면·history·CSV 전에 차단한다. 완료 여부는 ACK:STOP뿐 아니라 유효 측정 행 존재까지 확인한다. CSV는 설정 주기와 실제 timestamp를 혼동하거나 `manual` 문자열을 ms 열에 넣지 않는다.
+실험 정의에 derived나 데이터 없는 raw 지표가 있어도 실제 렌더 시리즈 수만 레이아웃에 반영한다. 그래프가 늘어도 패널을 고정 높이로 잘라내거나 데이터 포인트를 숨기지 않는다. SVG 좌표는 viewBox 범위 안의 유한 수이며 source·timestamp reset 계약은 기존 테스트로 유지한다.
 
 ## FAIL ROUTE 발화 기록
 
 | 판정 | 목적지 | 사유 |
 |---|---|---|
-| REPAIR | BUILD | revision 6 상류 변경 뒤 VERIFY 전체를 새 증거로 재실행 |
+| REPAIR | BUILD | revision 7 레이아웃 변경 뒤 전체 VERIFY를 새 증거로 재실행 |
 
 ## 한계
 
-production preview는 Web Serial 실제 권한/UNO를 사용하지 않았다. 배포 URL의 실제 장시간 cadence, hidden-tab, STOP ACK와 다운로드 CSV는 V3 미실행이다.
+브라우저 검증은 local production preview와 demo 데이터였다. 실제 Vercel Web Serial 세션 중 그래프 개수가 변하는 장시간 관찰은 V3 미실행이다.

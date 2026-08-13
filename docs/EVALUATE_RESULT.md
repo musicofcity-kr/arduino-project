@@ -2,54 +2,52 @@
 document: NODE_RESULT
 node: EVALUATE
 verdict: PASS
-revision: 6
+revision: 7
 evidence_level: V2
-evidence_unit: 79/79
-evidence_e2e: local-production-browser-1280+390-pass+timing-boundary-regression-pass+uno-compile-pass
+evidence_unit: 82/82
+evidence_e2e: local-production-browser-1848+1280+390-single+dual-series-no-overlap+root-overflow0
 evidence_build: 1816 modules
-recorded_at: 2026-08-13T15:57:00+09:00
+recorded_at: 2026-08-14T07:52:19+09:00
 ---
 
 # EVALUATE RESULT
 
 ## INPUT
 
-revision 6 BUILD·VERIFY 결과와 측정 시간 기능의 프로토콜·데이터·학생 UI 독립 리뷰.
+revision 7 BUILD·VERIFY 결과와 1개·복수 개 센서 그래프의 학생 UI 독립 검토.
 
 ## TASK
 
-웹 설정이 단순 표시 필터가 아니라 펌웨어 cadence 설정 경로를 변경하는지, 요청 시간과 실제 수집 경계가 구분되는지, 원시 timestamp/source와 파생 계산이 P0를 지키는지, 학생에게 0행·중단·완료를 오인시키지 않는지 평가했다.
+마지막 그래프와 단위·통계·출처가 가려지지 않는지, 시리즈 수가 늘 때 패널과 다음 행의 관계가 안전한지, 그래프 레이아웃 수리가 원시 데이터·CSV 의미를 바꾸지 않는지 평가했다.
 
 ## OUTPUT
 
-- exact INTERVAL ACK 뒤에만 센서 MODE와 새 run을 시작한다.
-- preset은 센서 안전 하한을 지키며 설정 중 잠겨 run 중 provenance 혼합을 막는다.
-- deadline 이후 frame은 수신되더라도 current/history/CSV에 포함하지 않는다.
-- CSV는 요청 간격·요청시간과 실제 시작/종료시각·종료사유를 별도 열로 보존한다.
-- HC 속도는 nominal interval이 아닌 device timestamps로 계산한다.
-- 유효 측정 0행, STOP 실패, interval 실패를 성공 완료로 표시하지 않는다.
-- configuring/stopping 상태를 시각적으로 표시하고 demo 조작을 잠그며 CSV를 완료/직접 멈춤/중단으로 구분한다.
+- 단일 그래프는 한 열 전체 폭을 사용하고 복수 그래프는 가용 폭에 따라 자동 배치된다.
+- 좁은 측정 열과 390px 화면에서는 각 그래프가 한 열로 쌓이고 측정 패널이 콘텐츠 높이만큼 늘어난다.
+- 온도·습도는 독립 단위·최저·최고·최신·표본 수와 서로 다른 선 스타일을 유지한다.
+- stale/중지/demo의 현재·마지막·예시 상태와 SVG title/description은 유지된다.
+- raw timestamp/source/unit, derived 제외, 24점 화면 버퍼, live CSV 계약은 변경되지 않았다.
 
 ## PASS 조건과 판정
 
 | 조건 | 결과 | 증거 등급 |
 |---|---|---|
-| 펌웨어 sampling cadence 계약과 UI 문구 일치 | PASS | V2 |
-| raw/derived source·unit·timestamp 추적 | PASS | V2 |
-| requested/actual duration과 stop reason 분리 | PASS | V2 |
-| 실패·0행·중단을 완료로 오인시키지 않음 | PASS | V2 |
+| 1개·복수 그래프의 마지막 시리즈까지 가시성 유지 | PASS | V2 |
+| 단위·통계·출처·현재/마지막 상태 의미 보존 | PASS | V2 |
+| 색상 외 제목·단위·선 스타일·ARIA로 시리즈 구분 | PASS | V2 |
+| 실제 viewport에서 겹침·잘림·문서 가로 overflow 0 | PASS | V2 |
 | 독립 Reviewer blocker/major | 0건 | V1 |
 
 ## Negative / Fail-closed 검증
 
-브라우저가 느리거나 탭이 background였다는 이유로 종료 경계 밖 프레임을 요청 구간의 데이터로 편입하지 않는다. 무기한 측정은 duration ms 열을 비우고 `durationMode=continuous`로 구분한다. 실제 센서 cadence/정확도는 mock·compile만으로 확정하지 않는다.
+패널을 임의 고정 높이로 키우거나 내부 스크롤에 숨기지 않는다. raw와 derived를 한 시리즈로 섞지 않고, 그래프 표시 개선을 측정 정확도·센서 교정 또는 Vercel 실제 장치 검증으로 확대하지 않는다.
 
 ## FAIL ROUTE 발화 기록
 
 | 판정 | 목적지 | 사유 |
 |---|---|---|
-| REPAIR | BUILD | 예약 종료·CSV 타입·checking UI 리뷰 결함을 BUILD에서 수리하고 하류를 재검증 |
+| REPAIR | BUILD | 복수 그래프 clipping 원인을 대시보드 높이·flex 축소 계약에서 수리하고 하류를 재평가 |
 
 ## 한계
 
-실제 UNO revision 6 펌웨어의 주기 오차, Vercel Web Serial, 모바일 OTG, 실제 다운로드 CSV와 학생 사용성은 USER CHECK에 남긴다.
+학생 실사용과 실제 배포 Web Serial 장시간 측정은 USER CHECK에 남긴다.
