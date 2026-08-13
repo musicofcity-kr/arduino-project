@@ -49,9 +49,14 @@ import teacherAvatar from './assets/dashboard/teacher-avatar.jpg';
 import unoBoard from './assets/dashboard/uno-board.jpg';
 
 interface SerialReaderLike {
-  read: () => Promise<{ value?: Uint8Array; done: boolean }>;
+  read: () => Promise<SerialReadResult>;
   cancel: () => Promise<void>;
   releaseLock: () => void;
+}
+
+interface SerialReadResult {
+  value?: Uint8Array;
+  done: boolean;
 }
 
 interface SerialWriterLike {
@@ -103,7 +108,10 @@ function toStudentExperiment(pack: (typeof experimentPacks)[number]): StudentExp
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const ACK_TIMEOUT_MS = 2600;
+const BOOT_HEARTBEAT_TIMEOUT_MS = 5000;
+const PING_ACK_TIMEOUT_MS = 1800;
+const MODE_ACK_TIMEOUT_MS = 5000;
+const STOP_ACK_TIMEOUT_MS = 3000;
 const FRESH_VALUE_MS = 3000;
 const MAX_LINE_BUFFER = 4096;
 
@@ -201,6 +209,7 @@ export default function App() {
   const portRef = useRef<SerialPortLike | null>(null);
   const readerRef = useRef<SerialReaderLike | null>(null);
   const writerRef = useRef<SerialWriterLike | null>(null);
+  const pendingReadRef = useRef<Promise<SerialReadResult> | null>(null);
   const lineBufferRef = useRef('');
   const measuringRef = useRef(false);
   const firmwareActiveRef = useRef(false);
@@ -236,13 +245,23 @@ export default function App() {
           return line;
         }
       }
-      const readPromise = reader.read();
-      const result = deadlineMs
-        ? await Promise.race([
-            readPromise,
-            new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('ACK_TIMEOUT')), deadlineMs)),
-          ])
-        : await readPromise;
+      const readPromise = pendingReadRef.current ?? reader.read();
+      pendingReadRef.current = readPromise;
+      let timeoutId: number | undefined;
+      let result: SerialReadResult;
+      try {
+        result = deadlineMs
+          ? await Promise.race([
+              readPromise,
+              new Promise<never>((_, reject) => {
+                timeoutId = window.setTimeout(() => reject(new Error('ACK_TIMEOUT')), deadlineMs);
+              }),
+            ])
+          : await readPromise;
+      } finally {
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      }
+      pendingReadRef.current = null;
       if (result.done) throw new Error('SERIAL_CLOSED');
       if (result.value) {
         const nextBuffer = lineBufferRef.current + decoder.decode(result.value, { stream: true }).replace(/\r/g, '');
@@ -265,11 +284,12 @@ export default function App() {
     command: string,
     expectedCommand: 'PING' | 'MODE' | 'STOP',
     expectedMode?: SensorPackId,
+    timeoutMs = STOP_ACK_TIMEOUT_MS,
   ) => {
     await send(command);
     const started = Date.now();
-    while (Date.now() - started < ACK_TIMEOUT_MS) {
-      const remaining = ACK_TIMEOUT_MS - (Date.now() - started);
+    while (Date.now() - started < timeoutMs) {
+      const remaining = timeoutMs - (Date.now() - started);
       const line = await readLine(remaining);
       const parsed = parseProtocolLine(line);
       if (!parsed.ok) {
@@ -288,6 +308,40 @@ export default function App() {
     throw new Error('ACK_TIMEOUT');
   }, [readLine, send]);
 
+  const waitForHeartbeat = useCallback(async () => {
+    const started = Date.now();
+    while (Date.now() - started < BOOT_HEARTBEAT_TIMEOUT_MS) {
+      const remaining = BOOT_HEARTBEAT_TIMEOUT_MS - (Date.now() - started);
+      let line: string;
+      try {
+        line = await readLine(remaining);
+      } catch (error) {
+        if (error instanceof Error && error.message === 'ACK_TIMEOUT') throw new Error('BOOT_TIMEOUT');
+        throw error;
+      }
+      const parsed = parseProtocolLine(line);
+      if (parsed.ok && parsed.message.kind === 'heartbeat') {
+        setDiagnostic('UNO 부팅 heartbeat 확인');
+        return;
+      }
+      setDiagnostic('UNO 부팅 전 경계 응답을 무시함');
+    }
+    throw new Error('BOOT_TIMEOUT');
+  }, [readLine]);
+
+  const waitForPing = useCallback(async () => {
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        await waitForAck('PING', 'PING', undefined, PING_ACK_TIMEOUT_MS);
+        return;
+      } catch (error) {
+        const retryable = error instanceof Error && error.message === 'ACK_TIMEOUT' && attempt === 1;
+        if (!retryable) throw error;
+        setDiagnostic('첫 PING 응답이 없어 같은 포트에서 한 번 더 확인함');
+      }
+    }
+  }, [waitForAck]);
+
   const closeSerial = useCallback(async () => {
     measuringRef.current = false;
     firmwareActiveRef.current = false;
@@ -303,6 +357,7 @@ export default function App() {
     try { reader?.releaseLock(); } catch { /* lock already released */ }
     try { writer?.releaseLock(); } catch { /* lock already released */ }
     try { await port?.close(); } catch { /* disconnected by browser */ }
+    pendingReadRef.current = null;
     lineBufferRef.current = '';
   }, []);
 
@@ -343,21 +398,22 @@ export default function App() {
       return;
     }
     try {
-      await closeSerial();
       setConnectionState('requesting');
       setConnectionMessage('목록에서 Arduino UNO를 하나 선택해 주세요.');
       const port = await serial.requestPort();
+      await closeSerial();
+      portRef.current = port;
       await port.open({ baudRate: 115200 });
       if (!port.readable || !port.writable) throw new Error('PORT_NOT_READY');
-      portRef.current = port;
       readerRef.current = port.readable.getReader();
       writerRef.current = port.writable.getWriter();
       setConnectionState('checking');
-      setConnectionMessage('UNO와 선택한 센서 프로그램의 응답을 차례로 확인하고 있어요.');
-      await waitForAck('PING', 'PING');
-      await waitForAck(selected.modeCommand, 'MODE', selected.sensorId);
+      setConnectionMessage('UNO가 다시 시작될 때까지 기다린 뒤 센서 응답을 확인하고 있어요.');
+      await waitForHeartbeat();
+      await waitForPing();
+      await waitForAck(selected.modeCommand, 'MODE', selected.sensorId, MODE_ACK_TIMEOUT_MS);
       firmwareActiveRef.current = true;
-      await waitForAck('STOP', 'STOP');
+      await waitForAck('STOP', 'STOP', undefined, STOP_ACK_TIMEOUT_MS);
       firmwareActiveRef.current = false;
       setConnectionState('ready');
       setConnectionMessage(selected.sensorId === 'ldr'
@@ -370,6 +426,12 @@ export default function App() {
       setConnectionState('error');
       if (name === 'NotFoundError') {
         setConnectionMessage('기기 선택이 취소되었어요. 준비되면 연결 버튼을 다시 눌러 주세요.');
+      } else if (name === 'SecurityError') {
+        setConnectionMessage('브라우저가 기기 선택을 허용하지 않았어요. 이 Vercel 주소를 Chrome 또는 Edge의 새 탭에서 직접 열고 다시 시도해 주세요.');
+      } else if (name === 'NetworkError' || name === 'InvalidStateError') {
+        setConnectionMessage('UNO 포트를 열 수 없어요. Arduino IDE의 시리얼 모니터처럼 COM 포트를 사용하는 프로그램을 닫고 다시 시도해 주세요.');
+      } else if (message === 'BOOT_TIMEOUT') {
+        setConnectionMessage('UNO가 다시 시작된 신호를 받지 못했어요. USB 데이터 케이블과 통합 펌웨어를 확인한 뒤 다시 연결해 주세요.');
       } else if (message === 'ACK_TIMEOUT') {
         setConnectionMessage('UNO 응답 시간이 지났어요. RESET 버튼을 한 번 누르고, 통합 펌웨어와 배선을 확인한 뒤 다시 연결해 주세요.');
       } else {
@@ -377,7 +439,7 @@ export default function App() {
       }
       setDiagnostic(`연결 오류: ${message || name || 'unknown'}`);
     }
-  }, [closeSerial, selected, waitForAck]);
+  }, [closeSerial, selected, waitForAck, waitForHeartbeat, waitForPing]);
 
   const disconnect = useCallback(async () => {
     await closeSerial();
@@ -481,7 +543,7 @@ export default function App() {
       if (!firmwareActiveRef.current) {
         setConnectionState('checking');
         setConnectionMessage('센서 모드를 다시 시작하고 UNO 응답을 확인하고 있어요.');
-        await waitForAck(selected.modeCommand, 'MODE', selected.sensorId);
+        await waitForAck(selected.modeCommand, 'MODE', selected.sensorId, MODE_ACK_TIMEOUT_MS);
         firmwareActiveRef.current = true;
       }
       measuringRef.current = true;
@@ -540,7 +602,7 @@ export default function App() {
       await send('STOP');
       await Promise.race([
         ackPromise,
-        new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('ACK_TIMEOUT')), ACK_TIMEOUT_MS)),
+        new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('ACK_TIMEOUT')), STOP_ACK_TIMEOUT_MS)),
       ]);
       firmwareActiveRef.current = false;
       measurementStartedAtRef.current = null;

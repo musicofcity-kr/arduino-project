@@ -2,13 +2,13 @@
 document: NODE_RESULT
 node: BUILD
 verdict: PASS
-revision: 1
+revision: 2
 superseded: false
 evidence_level: V2
-evidence_unit: 39/39
-evidence_e2e: browser-flow-pass+responsive-390-pass
+evidence_unit: 42/42
+evidence_e2e: browser-flow-pass+webserial-reset-regression-pass+responsive-390-pass+design-qa-pass
 evidence_build: 1812 modules
-recorded_at: 2026-08-12T10:00:51+09:00
+recorded_at: 2026-08-13T12:57:15+09:00
 ---
 
 # BUILD RESULT
@@ -21,6 +21,8 @@ Arduino UNO Web Serial, DHT11/HC-SR04/LDR Sensor Pack 3종, 대응 Experiment Pa
 
 React/Vite 학생 화면, 엄격한 직렬 프로토콜·계산 계층, Node 로컬 저장 API, UNO 통합 펌웨어를 구현했다.
 
+Revision 2에서는 Vercel Web Serial 연결 때 UNO 자동 리셋 직후 최초 PING이 유실되는 결함을 수리했다. 포트 개방 뒤 유효 heartbeat를 기다리고, PING만 같은 포트에서 최대 1회 재시도하며, DHT11 MODE ACK 제한을 5초로 분리하고 timeout 뒤 pending read를 재사용한다.
+
 ## OUTPUT
 
 - `src/` — 학생 UI, Web Serial, protocol/calculation, 저장·CSV
@@ -32,14 +34,14 @@ React/Vite 학생 화면, 엄격한 직렬 프로토콜·계산 계층, Node 로
 
 | 조건 | 결과 | 증거 등급 |
 |---|---|---|
-| ACK·timeout·stale fail-closed | PASS | V2 |
+| 부팅 heartbeat·PING 재시도·ACK·timeout·stale fail-closed | PASS | V2 |
 | raw/derived/demo 출처 분리 | PASS | V2 |
 | 3개 Pack 메타데이터와 안전 안내 | PASS | V2 |
 | 비식별 저장·조회·CSV 추적성 | PASS | V2 |
 
 ## Negative / Fail-closed 검증
 
-잘못된 ACK/JSON/센서/단위/계산 근거, 개인정보 필드, stale timeout, 과도한 line buffer와 demo 저장을 거부하는 회귀 테스트를 포함했다.
+잘못된 ACK/JSON/센서/단위/계산 근거, 개인정보 필드, stale timeout, 과도한 line buffer와 demo 저장을 거부하는 회귀 테스트를 포함했다. 또한 heartbeat 전 PING 금지와 최초 PING 유실 뒤 같은 포트의 단일 재시도 성공을 검증한다.
 
 ## FAIL ROUTE 발화 기록
 
@@ -49,4 +51,4 @@ React/Vite 학생 화면, 엄격한 직렬 프로토콜·계산 계층, Node 로
 
 ## 한계
 
-UNO 대상 펌웨어 컴파일은 통과했지만, 실제 UNO 업로드와 센서 실측은 수행하지 않았다.
+이전 실제 UNO·DHT11 측정은 통과했다. Revision 2 수정의 Vercel 배포 후 실제 Web Serial 재연결은 게시 뒤 확인한다.
