@@ -262,6 +262,7 @@ export default function App() {
   const [measurementEndsAt, setMeasurementEndsAt] = useState<number | null>(null);
   const [measurementTimingStatus, setMeasurementTimingStatus] = useState('설정을 선택한 뒤 측정을 시작하세요.');
   const [switchingSensor, setSwitchingSensor] = useState(false);
+  const [clearingLiveData, setClearingLiveData] = useState(false);
 
   const portRef = useRef<SerialPortLike | null>(null);
   const readerRef = useRef<SerialReaderLike | null>(null);
@@ -285,6 +286,8 @@ export default function App() {
   const anonymousSessionRef = useRef<string | null>(null);
   const liveSessionRef = useRef<LiveSessionRun | null>(null);
   const switchingSensorRef = useRef(false);
+  const clearingLiveDataRef = useRef(false);
+  const restartAfterClearRef = useRef(false);
   const sessionApi = useMemo(() => createSessionApi(), []);
 
   const endLiveRun = useCallback((stopReason: Exclude<LiveSessionCsvContext['stopReason'], 'running'>) => {
@@ -695,7 +698,13 @@ export default function App() {
       };
       setLiveCsvCount(0);
       setLiveRunOutcome('running');
-      setLiveCsvStatus('실측 데이터가 들어오면 현재 측정 CSV를 받을 수 있어요.');
+      const restartedAfterClear = restartAfterClearRef.current;
+      restartAfterClearRef.current = false;
+      clearingLiveDataRef.current = false;
+      setClearingLiveData(false);
+      setLiveCsvStatus(restartedAfterClear
+        ? '이전 데이터를 비우고 새 측정을 시작했어요. 새 센서값을 기다리고 있어요.'
+        : '실측 데이터가 들어오면 현재 측정 CSV를 받을 수 있어요.');
       ldrReferenceRef.current = null;
       previousDistanceRef.current = null;
       measuringRef.current = true;
@@ -783,6 +792,10 @@ export default function App() {
       }
     } catch (error) {
       if (!measuringRef.current && receiveLoopStarted) return;
+      const restartFailed = restartAfterClearRef.current;
+      restartAfterClearRef.current = false;
+      clearingLiveDataRef.current = false;
+      setClearingLiveData(false);
       measuringRef.current = false;
       measurementStartedAtRef.current = null;
       measurementEndsAtRef.current = null;
@@ -798,6 +811,7 @@ export default function App() {
       measurementStaleRef.current = true;
       setMeasurementStale(true);
       setFreshnessMessage('현재값 없음 · 마지막 측정 기록과 CSV는 유지됩니다.');
+      if (restartFailed) setLiveCsvStatus('새 측정 설정을 확인하지 못해 이전 그래프와 CSV를 유지했어요.');
       setDiagnostic(`${receiveLoopStarted ? '수신' : '측정 설정'} 오류: ${detail}`);
       if (receiveLoopStarted) {
         endLiveRun('serial-error');
@@ -807,8 +821,8 @@ export default function App() {
     }
   }, [buildSamples, closeSerial, connected, endLiveRun, markMeasurementStale, measurementDurationMs, measurementIntervalMs, readLine, selected.id, selected.modeCommand, selected.sensorId, selected.sensorName, waitForAck]);
 
-  const stopMeasurement = useCallback(async (reason: 'manual' | 'automatic' = 'manual') => {
-    if (!measuringRef.current || stopRequestedRef.current) return;
+  const stopMeasurement = useCallback(async (reason: 'manual' | 'automatic' = 'manual'): Promise<boolean> => {
+    if (!measuringRef.current || stopRequestedRef.current) return false;
     stopRequestedRef.current = true;
     setConnectionState('checking');
     setConnectionMessage(reason === 'automatic'
@@ -851,6 +865,7 @@ export default function App() {
       setFreshnessMessage('');
       measurementStaleRef.current = false;
       setMeasurementStale(false);
+      return true;
     } catch (error) {
       measuringRef.current = false;
       firmwareActiveRef.current = false;
@@ -867,11 +882,69 @@ export default function App() {
       setMeasurementStale(true);
       setDiagnostic(`STOP 오류: ${error instanceof Error ? error.message : 'unknown'}`);
       setMeasurementTimingStatus('종료 응답을 확인하지 못했어요. 완료된 측정으로 표시하지 않습니다.');
+      return false;
     } finally {
       stopRequestedRef.current = false;
       stopAckRef.current = null;
     }
   }, [closeSerial, endLiveRun, measurementDurationMs, send]);
+
+  const clearLiveMeasurementState = useCallback((status: string) => {
+    setSamples([]);
+    setHistory([]);
+    liveSessionRef.current = null;
+    setLiveCsvCount(0);
+    setLiveRunOutcome('none');
+    setLiveCsvStatus(status);
+    ldrReferenceRef.current = null;
+    previousDistanceRef.current = null;
+    measurementStartedAtRef.current = null;
+    lastMeasurementAtRef.current = null;
+    measurementEndsAtRef.current = null;
+    autoStopRequestedRef.current = false;
+    setMeasurementEndsAt(null);
+    measurementStaleRef.current = false;
+    setMeasurementStale(false);
+    setFreshnessMessage('');
+    setMeasurementTimingStatus('이번 측정 데이터를 비웠어요. 바로 측정 시작을 누르면 새 기록으로 시작합니다.');
+    setDiagnostic('현재 라이브 측정 기록 비움');
+  }, []);
+
+  const clearOrRestartLiveMeasurement = useCallback(async () => {
+    const liveRun = liveSessionRef.current;
+    const hasLiveData = history.length > 0 || Boolean(liveRun?.samples.length);
+    if (!hasLiveData || clearingLiveDataRef.current || recordBusy) return;
+    const rowCount = liveRun?.samples.length ?? 0;
+    const demoOnly = !liveRun?.samples.length && history.every((sample) => sample.source === 'demo');
+    const confirmed = window.confirm(demoOnly
+      ? '화면의 데모 데이터를 비울까요? 실측 저장 기록과 이미 내려받은 파일은 유지됩니다.'
+      : measuringRef.current
+        ? `현재 측정을 멈추고 ${rowCount.toLocaleString('ko-KR')}행의 데이터를 비운 뒤 새 측정을 시작할까요? 그래프와 이번 측정 CSV만 비워지며, 저장 기록과 이미 내려받은 파일은 유지됩니다.`
+        : `이번 측정 데이터를 비울까요? 그래프와 ${rowCount.toLocaleString('ko-KR')}행의 이번 측정 CSV가 비워집니다. 저장 기록과 이미 내려받은 파일은 유지됩니다.`);
+    if (!confirmed) return;
+
+    clearingLiveDataRef.current = true;
+    setClearingLiveData(true);
+    if (measuringRef.current) {
+      const stopped = await stopMeasurement('manual');
+      if (!stopped) {
+        clearingLiveDataRef.current = false;
+        setClearingLiveData(false);
+        setLiveCsvStatus('STOP 응답을 확인하지 못해 기존 그래프와 CSV를 지우지 않았어요.');
+        return;
+      }
+      restartAfterClearRef.current = true;
+      setLiveCsvStatus('새 측정 설정을 확인하고 있어요. 성공한 뒤에만 이전 데이터를 비웁니다.');
+      void startMeasurement();
+      return;
+    }
+
+    clearLiveMeasurementState(demoOnly
+      ? '데모 데이터와 그래프를 비웠어요.'
+      : '이번 측정 데이터와 그래프를 비웠어요. 새 측정을 시작할 수 있어요.');
+    clearingLiveDataRef.current = false;
+    setClearingLiveData(false);
+  }, [clearLiveMeasurementState, history.length, recordBusy, startMeasurement, stopMeasurement]);
 
   useEffect(() => {
     if (connectionState !== 'measuring' || measurementEndsAt === null || freshnessTick < measurementEndsAt) return;
@@ -1141,6 +1214,9 @@ export default function App() {
               liveCsvCount={liveCsvCount}
               liveCsvStatus={liveCsvStatus}
               onDownloadLiveCsv={downloadLiveCsv}
+              onClearLiveData={() => void clearOrRestartLiveMeasurement()}
+              clearingLiveData={clearingLiveData}
+              clearLiveDataLocked={recordBusy}
               freshnessMessage={freshnessMessage}
               measurementStale={measurementStale}
               measurementIntervalMs={measurementIntervalMs}

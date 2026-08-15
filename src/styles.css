@@ -205,6 +205,9 @@ a { color: inherit; }
 .text-button { padding: 7px 2px; border: 0; color: #526078; background: transparent; font-size: 9px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .text-button:disabled { opacity: .45; cursor: not-allowed; }
 .live-csv-button { min-height: 31px; color: #1857a7; background: #eaf2ff; }
+.live-clear-button { min-height: 31px; border: 1px solid #d98383; color: #a22d31; background: #fff; }
+.live-clear-button:hover:not(:disabled) { border-color: #bd5558; background: #fff2f1; }
+.live-clear-help { width: 100%; margin: 3px 0 0; color: #69768a; font-size: 8px; line-height: 1.35; }
 .live-csv-status { width: 100%; margin: 1px 0 0; color: #536176; font-size: 8px; line-height: 1.35; }
 .compact-history { flex: 0 0 auto; min-height: 55px; margin-top: 6px; overflow: visible; padding: 6px 9px; border: 1px solid #e2e7ef; border-radius: 7px; background: #fbfcfe; }
 .live-chart-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -377,7 +380,7 @@ circle.live-chart-line { fill: var(--brand); }
   .live-chart-series-header { align-items: flex-start; flex-direction: column; gap: 2px; font-size: 11px; }
   .live-chart-series-list { grid-template-columns: 1fr; }
   .live-chart-series svg { height: 44px; }
-  .live-chart-heading strong, .compact-history small, .live-chart-axis, .live-csv-status { font-size: 11px; }
+  .live-chart-heading strong, .compact-history small, .live-chart-axis, .live-csv-status, .live-clear-help { font-size: 11px; }
   .workflow-panel { min-height: 188px; overflow-x: auto; }
   .workflow-panel ol { min-width: 560px; }
   .simulation-panel { min-height: 190px; }
