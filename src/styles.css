@@ -151,10 +151,14 @@ a { color: inherit; }
 .state-requesting, .state-checking { color: #7d5d07; background: #fff1c9; }
 .state-error, .state-unsupported { color: #9d3537; background: #fde6e5; }
 .sensor-pack-row { display: flex; justify-content: space-between; gap: 5px; padding: 7px 0; border-top: 1px solid #edf0f4; border-bottom: 1px solid #edf0f4; }
-.sensor-pack-row span { display: inline-flex; align-items: center; gap: 4px; color: #526078; font-size: 9px; }
-.sensor-pack-row span:nth-child(1) svg { color: #ef5c75; }
-.sensor-pack-row span:nth-child(2) svg { color: #557de0; }
-.sensor-pack-row span:nth-child(3) svg { color: #f2a21c; }
+.sensor-pack-row button { display: inline-flex; flex: 1 1 0; align-items: center; justify-content: center; gap: 4px; min-width: 0; min-height: 34px; padding: 4px 5px; border: 1px solid transparent; border-radius: 7px; color: #526078; background: #f7f9fc; font-size: 9px; font-weight: 750; cursor: pointer; }
+.sensor-pack-row button:hover:not(:disabled) { border-color: #b9cceb; background: #eef5ff; }
+.sensor-pack-row button:focus-visible { outline: 3px solid rgba(21, 101, 216, .28); outline-offset: 1px; }
+.sensor-pack-row button.is-selected { border-color: #75a8eb; color: #145bac; background: #eaf3ff; box-shadow: inset 0 0 0 1px rgba(21, 101, 216, .08); }
+.sensor-pack-row button:disabled { cursor: not-allowed; opacity: .5; }
+.sensor-pack-row button:nth-child(1) svg { color: #ef5c75; }
+.sensor-pack-row button:nth-child(2) svg { color: #557de0; }
+.sensor-pack-row button:nth-child(3) svg { color: #f2a21c; }
 .connection-message { display: -webkit-box; min-height: 28px; margin: 7px 0 6px; overflow: hidden; color: #667286; font-size: 10px; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .connection-message.is-error { color: #a63839; }
 .button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 0 13px; border: 0; border-radius: 7px; font-size: 11px; font-weight: 800; cursor: pointer; }
@@ -246,6 +250,7 @@ circle.live-chart-line { fill: var(--brand); }
 .experiment-card { position: relative; display: flex; flex-direction: column; min-width: 0; height: 145px; padding: 0; overflow: hidden; border: 1px solid #e0e5ed; border-radius: 7px; color: var(--ink); background: #fff; text-align: left; cursor: pointer; transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease; }
 .experiment-card:hover { transform: translateY(-2px); border-color: #a9c5ea; box-shadow: 0 5px 12px rgba(31,65,112,.1); }
 .experiment-card.is-selected { border: 2px solid var(--brand); }
+.experiment-card:disabled { cursor: not-allowed; opacity: .55; transform: none; box-shadow: none; }
 .experiment-thumb { position: relative; display: block; width: 100%; height: 70px; overflow: hidden; background: #edf2f8; line-height: 0; }
 .experiment-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .experiment-category { position: absolute; bottom: 4px; left: 5px; display: inline-flex; align-items: center; gap: 3px; padding: 3px 5px; border-radius: 4px; color: #fff; background: rgba(16,87,185,.88); font-size: 7px; font-weight: 800; }
@@ -359,6 +364,7 @@ circle.live-chart-line { fill: var(--brand); }
   .mode-card { display: none; }
   .mode-card.is-active { display: grid; }
   .sensor-panel, .dashboard-measurement { min-height: 304px; }
+  .sensor-pack-row button { min-height: 44px; font-size: 11px; }
   .dashboard-measurement { align-self: stretch; }
   .measurement-timing { grid-template-columns: 1fr; }
   .measurement-timing label { font-size: 12px; }

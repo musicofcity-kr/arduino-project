@@ -3,7 +3,7 @@ document: STATE
 package_version: 5.0.0
 project: Web App-based Integrated Modular Science Inquiry Workbench
 graph: default
-revision: 7
+revision: 8
 active_node: USER CHECK
 status: ESCALATE
 retry_count: 0
@@ -11,13 +11,13 @@ repair_target: none
 fallback_target: none
 terminal_node: COMPLETE
 terminal_reached: false
-updated_at: 2026-08-14T08:01:23+09:00
+updated_at: 2026-08-15T13:53:30+09:00
 evidence_level: V2
 evidence_committed: true
-evidence_unit: 82/82
-evidence_e2e: local-production-browser-1848+1280+390-single+dual-series-no-overlap+root-overflow0
+evidence_unit: 84/84
+evidence_e2e: local-production-browser-desktop+390-three-sensor-selection-no-overflow
 evidence_build: 1816 modules
-open_question: Vercel 실제 Web Serial 장시간 측정에서 한 센서의 1개·2개 원시 시리즈 동적 누적과 CSV 조작을 확인할 것
+open_question: 수정된 센서 선택 UI를 Vercel에 배포한 뒤 HC-SR04와 LDR의 실제 Web Serial 연결·측정·CSV 흐름을 반복 확인할 것
 stop_reason: none
 fallback_reason: none
 ---
@@ -26,14 +26,18 @@ fallback_reason: none
 
 ## 현재 판정 요약
 
-revision 7에서 USER CHECK로 확인된 한 센서의 복수 원시 측정 시리즈 그래프 잘림을 BUILD REPAIR했다. 실제 렌더된 raw 시리즈 수가 1개 또는 여러 개여도 측정 패널과 대시보드 행이 콘텐츠 높이에 맞춰 늘어나며, 단일 그래프는 전체 폭, 복수 그래프는 가용 폭에 따른 반응형 카드로 표시된다.
+revision 8은 Vercel 화면의 센서 표시가 클릭 가능한 선택 버튼이 아니어서 HC-SR04와 LDR 작업을 시작할 수 없던 USER CHECK 결함을 BUILD에서 수리한 결과다. 상단 센서 행을 세 개의 실제 버튼으로 바꾸고 선택 상태를 `aria-pressed`와 텍스트로 표시했다. 센서를 선택하면 탐구팩, 센서명, 연결 버튼, 기본 측정 간격이 함께 바뀐다.
 
-자동 테스트 82/82, package selftest 42/42, package gate blocker 0/warn 0, TypeScript/Vite production build 1,816 modules를 통과했다. local production preview에서 1848×893 DHT 2개·HC 1개, 1280×800 DHT 2개, 390×844 DHT 2개 그래프의 마지막 시리즈가 패널 내부에 있고 다음 행과 12px 간격을 유지함을 확인했다. 세 화면의 문서 가로 overflow는 0이고 모바일 주요 버튼은 44px다. 그래프 수리는 raw timestamp/source/unit, derived 제외, 24점 화면 버퍼와 CSV·센서 통신 계약을 변경하지 않았다.
+연결 요청·연결 확인·측정 중에는 상단 센서 버튼과 하단 실험 카드가 모두 잠긴다. 연결 준비 상태에서 센서를 바꾸면 기존 포트가 닫힌 뒤 새 선택을 적용하므로 진행 중 명령과 새 센서 화면이 섞이지 않는다. 센서 측정 프로토콜, raw timestamp/source/unit, 그래프·CSV 데이터 계약과 펌웨어는 변경하지 않았다.
 
-2026-08-13 실제 COM7 UNO에서 확인한 revision 6 DHT11 2초 interval/STOP V3 증거는 그대로 유효하지만, revision 7 UI는 local demo 기반 V2다. 실제 Vercel Web Serial 장시간 계측은 미확인이라 전체 상태는 `USER CHECK / ESCALATE`이며 COMPLETE가 아니다.
+자동 검증은 84/84, production build는 1,816 modules를 통과했다. local production browser에서 DHT11·HC-SR04·LDR 버튼을 각각 선택해 센서명·연결 CTA·기본 간격 변경을 확인했다. 390px viewport에서는 세 버튼이 각각 44px 높이를 유지했고 문서 가로 overflow와 콘솔 오류는 0이었다.
+
+2026-08-13 실제 COM7 UNO에서 확인한 revision 6 DHT11 2초 interval/STOP 부분 V3 증거는 그대로 유효하다. 2026-08-15 사용자가 Vercel 배포 URL의 DHT11 5분 계측에서 그래프 무잘림, 관찰 구간 연결 유지, 예약 자동 종료 1회, 다운로드 CSV와 화면 값 일치를 보고했다. 이는 해당 세션의 부분 V3 사용자 관찰이며 모든 센서·환경의 V3나 측정 정확도·교정을 입증하지 않는다.
+
+현재 상태는 `USER CHECK / ESCALATE`이며 COMPLETE가 아니다. 이번 센서 선택 수리는 로컬 production browser V2까지 확인됐고, Vercel 배포본에서 HC-SR04와 LDR의 실제 Web Serial 계측은 아직 확인해야 한다.
 
 ## 사용자 확인이 필요한 범위
 
-- 실제 Vercel Web Serial에서 DHT 2개·HC/LDR 1개 그래프의 장시간 동적 누적과 CSV 조작 확인
-- 실제 390px Android Chrome+USB OTG에서 그래프·측정 설정·CSV 사용성 확인
-- revision 6에서 남긴 다른 간격·예약 종료·LDR·수업 사용성 V3 확인
+- 수정본 배포 후 Vercel 상단에서 HC-SR04와 LDR을 선택하고 실제 연결·측정·STOP·CSV 흐름을 확인
+- 실제 390px Android Chrome+USB OTG에서 센서 선택·그래프·측정 설정·CSV 사용성 확인
+- DHT11 5초·10초 간격, HC-SR04 거리 변화·속도, LDR 정상 분압 반응, 학교 PC 및 초보 학생 사용 V3 확인

@@ -261,6 +261,7 @@ export default function App() {
   const [measurementDurationMs, setMeasurementDurationMs] = useState(0);
   const [measurementEndsAt, setMeasurementEndsAt] = useState<number | null>(null);
   const [measurementTimingStatus, setMeasurementTimingStatus] = useState('설정을 선택한 뒤 측정을 시작하세요.');
+  const [switchingSensor, setSwitchingSensor] = useState(false);
 
   const portRef = useRef<SerialPortLike | null>(null);
   const readerRef = useRef<SerialReaderLike | null>(null);
@@ -283,6 +284,7 @@ export default function App() {
   const previousDistanceRef = useRef<RawMeasurement | null>(null);
   const anonymousSessionRef = useRef<string | null>(null);
   const liveSessionRef = useRef<LiveSessionRun | null>(null);
+  const switchingSensorRef = useRef(false);
   const sessionApi = useMemo(() => createSessionApi(), []);
 
   const endLiveRun = useCallback((stopReason: Exclude<LiveSessionCsvContext['stopReason'], 'running'>) => {
@@ -296,6 +298,7 @@ export default function App() {
     ? 3
     : selected ? 2 : 1;
   const connected = connectionState === 'ready' || connectionState === 'measuring';
+  const sensorSelectionLocked = switchingSensor || connectionState === 'requesting' || connectionState === 'checking' || connectionState === 'measuring';
   const visibleSamples = samples.filter((sample) =>
     sample.source === 'demo' || freshnessTick - sample.receivedAt <= measurementFreshnessMs(selected.sensorId, appliedIntervalMsRef.current)
   );
@@ -984,26 +987,34 @@ export default function App() {
     }
   }, []);
 
-  const chooseExperiment = useCallback((experiment: StudentExperiment) => {
+  const chooseExperiment = useCallback(async (experiment: StudentExperiment) => {
     if (experiment.id === selected.id) return;
-    if (connected) void disconnect();
-    setSelectedId(experiment.id);
-    const nextInterval = DEFAULT_SENSOR_INTERVAL_MS[experiment.sensorId];
-    appliedIntervalMsRef.current = nextInterval;
-    setMeasurementIntervalMs(nextInterval);
-    setMeasurementDurationMs(0);
-    measurementEndsAtRef.current = null;
-    setMeasurementEndsAt(null);
-    setMeasurementTimingStatus('새 센서의 기본 측정 설정을 적용했어요.');
-    setSamples([]);
-    setHistory([]);
-    liveSessionRef.current = null;
-    setLiveRunOutcome('none');
-    setLiveCsvCount(0);
-    setLiveCsvStatus('');
-    setFreshnessMessage('');
-    window.setTimeout(() => document.getElementById('setup')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }), 80);
-  }, [connected, disconnect, selected.id]);
+    if (sensorSelectionLocked || switchingSensorRef.current) return;
+    switchingSensorRef.current = true;
+    setSwitchingSensor(true);
+    try {
+      if (connected) await disconnect();
+      setSelectedId(experiment.id);
+      const nextInterval = DEFAULT_SENSOR_INTERVAL_MS[experiment.sensorId];
+      appliedIntervalMsRef.current = nextInterval;
+      setMeasurementIntervalMs(nextInterval);
+      setMeasurementDurationMs(0);
+      measurementEndsAtRef.current = null;
+      setMeasurementEndsAt(null);
+      setMeasurementTimingStatus('새 센서의 기본 측정 설정을 적용했어요.');
+      setSamples([]);
+      setHistory([]);
+      liveSessionRef.current = null;
+      setLiveRunOutcome('none');
+      setLiveCsvCount(0);
+      setLiveCsvStatus('');
+      setFreshnessMessage('');
+      window.setTimeout(() => document.getElementById('setup')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }), 80);
+    } finally {
+      switchingSensorRef.current = false;
+      setSwitchingSensor(false);
+    }
+  }, [connected, disconnect, selected.id, sensorSelectionLocked]);
 
   return (
     <div className="app-shell" id="top">
@@ -1081,10 +1092,25 @@ export default function App() {
                 </div>
                 <img src={unoBoard} alt="UNO 호환 센서 보드" />
               </div>
-              <div className="sensor-pack-row" aria-label="지원 센서팩">
-                <span><Thermometer size={17} /> DHT11</span>
-                <span><Ruler size={17} /> HC-SR04</span>
-                <span><Sun size={17} /> LDR</span>
+              <div className="sensor-pack-row" role="group" aria-label="측정할 센서팩 선택">
+                {packs.map((pack) => {
+                  const label = pack.sensorId === 'dht11' ? 'DHT11' : pack.sensorId === 'hc-sr04' ? 'HC-SR04' : 'LDR';
+                  const SensorIcon = pack.sensorId === 'dht11' ? Thermometer : pack.sensorId === 'hc-sr04' ? Ruler : Sun;
+                  return (
+                    <button
+                      key={pack.id}
+                      type="button"
+                      className={pack.id === selected.id ? 'is-selected' : ''}
+                      aria-label={`${label} 센서팩 선택`}
+                      aria-pressed={pack.id === selected.id}
+                      disabled={sensorSelectionLocked}
+                      title={sensorSelectionLocked ? '연결 확인 또는 측정을 마친 뒤 센서를 바꿀 수 있어요.' : `${label} 센서팩으로 전환`}
+                      onClick={() => void chooseExperiment(pack)}
+                    >
+                      <SensorIcon size={17} aria-hidden="true" /> {label}
+                    </button>
+                  );
+                })}
               </div>
               <p className={`connection-message ${connectionState === 'error' || connectionState === 'unsupported' ? 'is-error' : ''}`}>{connectionMessage}</p>
               {connected ? (
@@ -1162,7 +1188,13 @@ export default function App() {
               <div className="panel-heading"><h2 id="experiment-heading">수업카드 추천</h2><a href="#experiments">전체 보기 <ChevronRight size={14} /></a></div>
               <div className="experiment-grid">
                 {packs.map((pack) => (
-                  <ExperimentCard key={pack.id} experiment={pack} selected={pack.id === selected.id} onSelect={chooseExperiment} />
+                  <ExperimentCard
+                    key={pack.id}
+                    experiment={pack}
+                    selected={pack.id === selected.id}
+                    disabled={sensorSelectionLocked}
+                    onSelect={(experiment) => void chooseExperiment(experiment)}
+                  />
                 ))}
               </div>
             </section>

@@ -2,55 +2,56 @@
 document: NODE_RESULT
 node: BUILD
 verdict: PASS
-revision: 7
+revision: 8
 evidence_level: V2
-evidence_unit: 82/82
-evidence_e2e: local-production-browser-1848+1280+390-single+dual-series-no-overlap+root-overflow0
+evidence_unit: 84/84
+evidence_e2e: local-production-browser-desktop+390-three-sensor-selection-no-overflow
 evidence_build: 1816 modules
-recorded_at: 2026-08-14T07:52:19+09:00
+recorded_at: 2026-08-15T13:46:16+09:00
 ---
 
 # BUILD RESULT
 
 ## INPUT
 
-DHT11 측정 중 온도 그래프 아래의 상대습도 그래프가 측정 패널 높이를 넘어 다음 대시보드 행에 가려지는 USER CHECK 결함. 센서팩에 따라 실제 그래프가 1개 또는 여러 개일 수 있으므로 개수별 고정 높이가 아닌 유연한 레이아웃이 필요했다.
+Vercel 사용자 확인에서 상단 센서 행의 HC-SR04와 LDR이 버튼처럼 보이지만 선택되지 않아 DHT11 이외의 작업을 시작할 수 없었다. 코드에서 해당 요소는 클릭 처리와 키보드 의미가 없는 정적 `span`이었다. 기존 센서 변경 함수도 포트 종료를 기다리지 않아 연결 상태 전환과 새 선택이 겹칠 수 있었다.
 
 ## TASK
 
-- 대시보드 첫 행을 화면 높이에 맞춘 고정 축소가 아니라 측정 콘텐츠의 최대 높이에 맞춰 확장하도록 변경했다.
-- 측정 패널과 그래프 컨테이너가 flex 축소로 눌리지 않게 하고, 다음 행은 확장된 측정 패널 아래로 이동하도록 했다.
-- 실제 렌더된 raw 시리즈 수를 `single`/`multiple`과 개수로 표시하고, 그래프 카드는 `auto-fit` 반응형 grid로 배치했다.
-- 모바일에서는 그래프를 한 열로 유지하고 기존 44px 조작 영역을 보존했다.
-- raw timestamp, source, unit, 24점 제한, derived 제외, CSV와 센서 통신 계약은 변경하지 않았다.
+- 상단 센서 행을 실제 탐구팩 데이터에 연결된 버튼으로 변경한다.
+- DHT11·HC-SR04·LDR의 선택 상태를 텍스트와 `aria-pressed`로 제공한다.
+- 연결 요청·확인·측정 중에는 상단 버튼과 하단 실험 카드를 동일하게 잠근다.
+- 준비 상태에서 센서를 바꾸면 기존 포트 종료를 기다린 뒤 탐구팩·측정 설정·그래프·CSV 세션을 초기화한다.
+- 펌웨어, 센서 명령, 수치·timestamp·CSV 계약은 변경하지 않는다.
 
 ## OUTPUT
 
-- `src/components/LiveSensorChart.tsx`
-- `src/components/LiveSensorChart.test.tsx`
+- `src/App.tsx`
+- `src/App.test.tsx`
+- `src/components/ExperimentCard.tsx`
 - `src/styles.css`
-- revision 7 상태·노드 결과 문서
+- revision 8 상태·노드 결과 문서
 
 ## PASS 조건과 판정
 
 | 조건 | 결과 | 증거 등급 |
 |---|---|---|
-| 실제 raw 시리즈 1·2·4개를 빠짐없이 렌더링 | PASS | V2 |
-| 복수 그래프가 측정 패널 내부에서 자연 높이 유지 | PASS | V2 |
-| 다음 대시보드 행과 그래프 겹침 0 | PASS | V2 |
-| 1848px·1280px·390px에서 문서 가로 overflow 0 | PASS | V2 |
-| 단위·통계·ARIA title/description 유지 | PASS | V2 |
+| 상단에 세 센서가 실제 버튼으로 노출되고 각각 선택됨 | PASS | V2 |
+| 선택 시 센서명·연결 CTA·기본 간격·하단 탐구팩이 함께 갱신됨 | PASS | V2 |
+| requesting/checking/measuring 중 상·하단 선택 경로 모두 잠김 | PASS | V2 |
+| ready 상태 전환은 기존 포트를 닫은 뒤 새 선택을 적용 | PASS | V2 |
+| 390px에서 44px 조작 영역 및 가로 overflow 0 | PASS | V2 |
 
 ## Negative / Fail-closed 검증
 
-그래프 개수는 실험 정의 총수 대신 실제 raw 데이터가 존재하는 시리즈 수를 사용한다. derived 값은 별도 raw 그래프로 추가하지 않으며, 데이터 계산·CSV 행·측정 timestamp는 레이아웃 변경으로 수정하지 않는다. 그래프별 고정 패널 높이와 내부 이중 스크롤을 추가하지 않았다.
+진행 중 센서 전환은 비활성화해 기존 센서의 MODE·STOP·측정 프레임과 새 센서 화면이 섞이지 않게 한다. 빠른 중복 클릭은 동기 ref guard로 한 번만 처리하며, 하단 탐구 카드로 잠금 정책을 우회할 수 없다. 선택 UI 수리는 기존 측정 데이터와 live CSV 직렬화 코드를 변경하지 않는다.
 
 ## FAIL ROUTE 발화 기록
 
 | 판정 | 목적지 | 사유 |
 |---|---|---|
-| REPAIR | BUILD | USER CHECK에서 복수 그래프 clipping이 재현되어 revision 7 BUILD로 회귀 |
+| REPAIR | BUILD | USER CHECK에서 센서 선택 UI가 정적 표시였고 전환 경쟁 조건이 확인되어 revision 8 BUILD로 회귀 |
 
 ## 한계
 
-production preview는 demo 데이터로 레이아웃을 검증했다. 배포 Vercel URL과 실제 Web Serial 장시간 측정 중 동적 그래프 누적은 USER CHECK에 남긴다.
+수정본은 local production browser에서 검증했다. Vercel 배포본과 실제 HC-SR04·LDR Web Serial 계측은 USER CHECK에 남는다.

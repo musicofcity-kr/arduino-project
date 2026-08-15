@@ -1,7 +1,7 @@
 ---
 document: HARDWARE_VERIFICATION_LOG
 project: Web App-based Integrated Modular Science Inquiry Workbench
-recorded_at: 2026-08-13T17:49:10+09:00
+recorded_at: 2026-08-15T13:25:07+09:00
 overall_status: ESCALATE
 completed_check: V3-03
 remaining_checks: V3-04,V3-06..V3-08
@@ -12,7 +12,17 @@ deferred_check: V3-05
 
 ## 현재 판정
 
-UNO 대상 툴체인 컴파일과 실제 COM7 업로드·`ACK:PING`, DHT11 V3-03은 통과했다. 사진으로 확인한 HC-SR04 신호선을 수정한 뒤 실제 거리 연속 측정과 timeout 복구도 확인했지만 거리 변화·속도 계산은 남았다. LDR V3-05는 사용자 결정에 따라 추후 검증으로 남기며, 저장·학교 PC·학생 흐름도 미완료이므로 `USER CHECK / ESCALATE`를 유지한다.
+UNO 대상 툴체인 컴파일과 실제 COM7 업로드·`ACK:PING`, DHT11 V3-03은 통과했다. 2026-08-15 사용자가 Vercel 배포 앱의 DHT11 5분 계측에서 그래프·연결 유지·예약 종료·라이브 CSV 일치를 확인했으며, 해당 네 하위 항목은 부분 V3 사용자 관찰로 기록한다. 원시 CSV·브라우저 진단·serial ACK 기록이 첨부되지 않아 V3-06 전체 완료로 확대하지 않는다. 사진으로 확인한 HC-SR04 신호선을 수정한 뒤 실제 거리 연속 측정과 timeout 복구도 확인했지만 거리 변화·속도 계산은 남았다. LDR V3-05는 사용자 결정에 따라 추후 검증으로 남기며, 학교 PC·학생 흐름도 미완료이므로 `USER CHECK / ESCALATE`를 유지한다.
+
+## 2026-08-15 Vercel DHT11 5분 계측 USER CHECK
+
+- 사용자가 Vercel 배포 앱에서 실제 DHT11 Web Serial 계측을 5분간 수행했다.
+- 온도·상대습도 두 그래프가 계측 중 끝까지 잘리지 않고 표시됐다.
+- 계측 중 Web Serial 연결이 끊어지지 않았다.
+- 5분 예약 종료가 화면 흐름에서 한 번 실행되고 측정이 정상 종료됐다.
+- 다운로드한 라이브 세션 CSV의 행·시간·단위가 화면 계측과 일치함을 사용자가 확인했다.
+- 판정: revision 7 DHT11 Web Serial 세션의 그래프 무잘림·연결 유지·예약 종료 1회·CSV 화면 일치 네 하위 항목은 `PASS (부분 V3, 사용자 관찰)`이다.
+- 한계: 이 확인은 사용자의 실환경 관찰 보고를 근거로 하며 원시 CSV 파일, 브라우저 진단 로그, `ACK:STOP` serial transcript는 저장소 증거로 제출되지 않았다. V3-06 전체 provenance, DHT11 5초·10초 간격, HC-SR04·LDR, Android USB OTG·학교 PC 및 초보 학생 수업 흐름을 입증하지 않는다.
 
 ## 2026-08-12 작업 재개 시도
 
@@ -142,8 +152,8 @@ UNO 대상 툴체인 컴파일과 실제 COM7 업로드·`ACK:PING`, DHT11 V3-03
 | V3-03 | DHT11 | PASS | COM7 동일 세션, MODE ACK, 증가 timestamp의 유효 측정 4건, STOP ACK 이후 측정 0건 |
 | V3-04 | HC-SR04 | ESCALATE | 거리 통신·timeout 복구 PASS; 실제 거리 변화와 속도 계산 미확인 |
 | V3-05 | LDR | ESCALATE (추후 검증) | 사용자 결정으로 보류; 차광 반응 방향·1023 포화·분압 방향 확인 필요 |
-| V3-06 | 저장·CSV | 미확인 | 화면/서버/CSV provenance 대응 |
-| V3-07 | 학교 PC | 미확인 | Web Serial 권한, COM 점유·재연결 |
+| V3-06 | 저장·CSV | 부분 PASS / ESCALATE | Vercel DHT11 세션에서 사용자 화면·CSV 일치 확인; 원시 CSV·전체 provenance·서버 저장 미확인 |
+| V3-07 | 학교 PC | 부분 관찰 / ESCALATE | 해당 Vercel 계측 구간 연결 유지; 학교 PC 정책·COM 점유·재연결 미확인 |
 | V3-08 | 초보 학생 | 미확인 | 비식별 완주 관찰과 교사 확인 |
 
 ## V3-05 LDR 현재 주변광 계측
