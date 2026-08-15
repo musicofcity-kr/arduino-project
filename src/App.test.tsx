@@ -356,8 +356,8 @@ describe('Student Easy Mode protocol boundary', () => {
   it('closes a ready sensor session before selecting another sensor', async () => {
     const serial = installResponsiveSerial();
     let releaseClose!: () => void;
-    serial.port.close.mockImplementationOnce(() => new Promise<void>((resolve) => {
-      releaseClose = resolve;
+    serial.port.close.mockImplementationOnce(() => new Promise<undefined>((resolve) => {
+      releaseClose = () => resolve(undefined);
     }));
     render(<App />);
 
