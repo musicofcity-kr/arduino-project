@@ -1,4 +1,4 @@
-import { Activity, Download, Play, Square } from 'lucide-react';
+import { Activity, Download, Play, Square, Trash2 } from 'lucide-react';
 import type { MeasurementSample, StudentExperiment } from './types';
 import { LiveSensorChart } from './LiveSensorChart';
 import { SourceBadge } from './SourceBadge';
@@ -22,6 +22,9 @@ interface DashboardMeasurementProps {
   liveCsvCount: number;
   liveCsvStatus?: string;
   onDownloadLiveCsv: () => void;
+  onClearLiveData: () => void;
+  clearingLiveData: boolean;
+  clearLiveDataLocked: boolean;
   freshnessMessage?: string;
   measurementStale?: boolean;
   measurementIntervalMs: number;
@@ -46,6 +49,9 @@ export function DashboardMeasurement({
   liveCsvCount,
   liveCsvStatus,
   onDownloadLiveCsv,
+  onClearLiveData,
+  clearingLiveData,
+  clearLiveDataLocked,
   freshnessMessage,
   measurementStale = false,
   measurementIntervalMs,
@@ -59,6 +65,8 @@ export function DashboardMeasurement({
 }: DashboardMeasurementProps) {
   const latestByKey = new Map(samples.map((sample) => [sample.key, sample]));
   const runActive = measuring || (timingLocked && liveRunOutcome === 'running');
+  const hasLiveData = liveCsvCount > 0 || history.length > 0;
+  const demoOnly = liveCsvCount === 0 && history.length > 0 && history.every((sample) => sample.source === 'demo');
   const statusLabel = measuring
     ? (measurementStale ? '현재값 대기' : '실시간 수신')
     : timingLocked
@@ -156,7 +164,6 @@ export function DashboardMeasurement({
             <Play size={15} fill="currentColor" aria-hidden="true" /> 바로 측정 시작
           </button>
         )}
-        <button type="button" className="text-button" onClick={onDemo} disabled={measuring || timingLocked}>기기 없이 데모 데이터 보기</button>
         <button
           type="button"
           className="button button-secondary live-csv-button"
@@ -165,7 +172,26 @@ export function DashboardMeasurement({
         >
           <Download size={15} aria-hidden="true" /> {csvPrefix} 측정 CSV 받기 ({liveCsvCount}행)
         </button>
+        <button
+          type="button"
+          className="button live-clear-button"
+          onClick={onClearLiveData}
+          disabled={!hasLiveData || clearingLiveData || clearLiveDataLocked || (timingLocked && !measuring)}
+          aria-describedby="live-clear-help"
+        >
+          <Trash2 size={15} aria-hidden="true" /> {clearingLiveData
+            ? '기록 처리 중…'
+            : measuring
+              ? `비우고 새 측정 시작 (${liveCsvCount}행)`
+              : demoOnly
+                ? '데모 데이터 비우기'
+                : `이번 측정 데이터 비우기 (${liveCsvCount}행)`}
+        </button>
+        <button type="button" className="text-button" onClick={onDemo} disabled={measuring || timingLocked || clearingLiveData}>기기 없이 데모 데이터 보기</button>
       </div>
+      <p className="live-clear-help" id="live-clear-help">{demoOnly
+        ? '화면의 데모 그래프만 비웁니다. 실측 저장 기록과 파일에는 영향을 주지 않아요.'
+        : '그래프와 이번 측정 CSV만 비웁니다. 저장 기록과 이미 내려받은 파일은 유지돼요.'}</p>
       {liveCsvStatus && <p className="live-csv-status" role="status">{liveCsvStatus}</p>}
 
       <LiveSensorChart experiment={experiment} history={history} connected={connected} measuring={measuring} stale={measurementStale} />
