@@ -198,6 +198,8 @@ describe('Student Easy Mode protocol boundary', () => {
     await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
     expect(serial.writes).toEqual([]);
     expect(serial.port.open).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'HC-SR04 센서팩 선택' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /거리와 운동 탐구 선택/ })).toBeDisabled();
 
     await act(async () => {
       serial.enqueue('{"type":"heartbeat","timestampMs":0}');
@@ -206,6 +208,7 @@ describe('Student Easy Mode protocol boundary', () => {
 
     expect(screen.getByText('센서 준비 완료')).toBeInTheDocument();
     expect(serial.writes).toEqual(['PING\n', 'MODE:DHT11\n', 'STOP\n']);
+    expect(screen.getByRole('button', { name: 'HC-SR04 센서팩 선택' })).toBeEnabled();
   });
 
   it('recovers when UNO auto-reset drops the first PING without reopening the port', async () => {
@@ -330,6 +333,54 @@ describe('Student Easy Mode protocol boundary', () => {
     expect(distanceInterval.value).toBe('500');
   });
 
+  it('lets students select every supported sensor from the connection panel', () => {
+    render(<App />);
+
+    const dht = screen.getByRole('button', { name: 'DHT11 센서팩 선택' });
+    const ultrasonic = screen.getByRole('button', { name: 'HC-SR04 센서팩 선택' });
+    const light = screen.getByRole('button', { name: 'LDR 센서팩 선택' });
+    expect(dht).toHaveAttribute('aria-pressed', 'true');
+    expect(ultrasonic).toBeEnabled();
+    expect(light).toBeEnabled();
+
+    fireEvent.click(ultrasonic);
+    expect(ultrasonic).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /HC-SR04 연결하기/ })).toBeInTheDocument();
+    expect((screen.getByLabelText('얼마마다 측정할까요?') as HTMLSelectElement).value).toBe('500');
+
+    fireEvent.click(light);
+    expect(light).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /LDR \+ 10 kΩ 전압 분배기 연결하기/ })).toBeInTheDocument();
+  });
+
+  it('closes a ready sensor session before selecting another sensor', async () => {
+    const serial = installResponsiveSerial();
+    let releaseClose!: () => void;
+    serial.port.close.mockImplementationOnce(() => new Promise<undefined>((resolve) => {
+      releaseClose = () => resolve(undefined);
+    }));
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DHT11 연결하기/ }));
+    expect(await screen.findByText('센서 준비 완료')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'HC-SR04 센서팩 선택' }));
+
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(serial.port.close).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'DHT11 센서팩 선택' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'HC-SR04 센서팩 선택' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /거리와 운동 탐구 선택/ })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /HC-SR04 연결하기/ })).not.toBeInTheDocument();
+
+    await act(async () => {
+      releaseClose();
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    });
+
+    expect(await screen.findByRole('button', { name: /HC-SR04 연결하기/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'HC-SR04 센서팩 선택' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('applies the selected device interval before MODE and locks timing while measuring', async () => {
     const serial = installResponsiveSerial();
     render(<App />);
@@ -344,6 +395,8 @@ describe('Student Easy Mode protocol boundary', () => {
     expect(serial.writes.slice(-2)).toEqual(['SET_INTERVAL:DHT11:5000\n', 'MODE:DHT11\n']);
     expect(screen.getByLabelText('얼마마다 측정할까요?')).toBeDisabled();
     expect(screen.getByLabelText('얼마 동안 측정할까요?')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'HC-SR04 센서팩 선택' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /거리와 운동 탐구 선택/ })).toBeDisabled();
     expect(screen.getByRole('timer')).toHaveTextContent(/남은 시간 00:(29|30)/);
   });
 

@@ -2,56 +2,57 @@
 document: NODE_RESULT
 node: VERIFY
 verdict: PASS
-revision: 7
+revision: 9
 evidence_level: V2
-evidence_unit: 82/82
-evidence_e2e: local-production-browser-1848+1280+390-single+dual-series-no-overlap+root-overflow0
+evidence_unit: 84/84
+evidence_e2e: local-production-browser-desktop+390-three-sensor-selection-no-overflow
 evidence_build: 1816 modules
-recorded_at: 2026-08-14T07:52:19+09:00
+recorded_at: 2026-08-15T14:09:37+09:00
 ---
 
 # VERIFY RESULT
 
 ## INPUT
 
-BUILD revision 7의 가변 그래프 수 레이아웃과 기존 센서·CSV·측정시간 계약.
+BUILD revision 9의 deferred close mock 반환 타입 수리와 revision 8 센서 선택 흐름 전체.
 
 ## TASK
 
-1·2·4 raw 시리즈 렌더링, derived 제외, SVG 좌표·ARIA, 전체 앱 회귀, production build와 실제 브라우저의 패널·그래프·다음 행 bounding box를 검증했다.
+Vercel에서 실패한 TypeScript 경계를 production build로 다시 확인하고, 전체 자동화와 실제 local production browser에서 세 센서 선택 및 반응형 화면을 재검증했다.
 
 ## OUTPUT
 
-- `npm test`: Vitest 72/72 + Node 서버·펌웨어 10/10 = 82/82 PASS
+- `npm test`: Vitest 74/74 + Node 서버·펌웨어 10/10 = 84/84 PASS
 - `npm run build`: TypeScript + Vite PASS, 1,816 modules transformed
-- 1848×893 DHT 2개: panel `clientHeight=scrollHeight=571`, 모든 시리즈가 panel 내부, panel bottom 645.28 < next row top 657.28
-- 1848×893 HC 1개: panel `clientHeight=scrollHeight=503`, 단일 시리즈가 panel 내부, panel bottom 577.28 < next row top 589.28
-- 1280×800 DHT 2개: panel `clientHeight=scrollHeight=608`, panel bottom 694.28 < next row top 706.28
-- 390×844 DHT 2개: panel `clientHeight=scrollHeight=897`, panel bottom 1697.91 < next row top 1709.91, 주요 버튼 3개 44px
-- 세 viewport 모두 document `scrollWidth=clientWidth`; Vite 오류 overlay 없음
-- 브라우저 콘솔 기능 오류 0; 별도 favicon 미제공에 따른 404 한 건만 확인
+- `PYTHONUTF8=1 python tools/check_package.py`: blocker 0 / warn 0 PASS
+- `PYTHONUTF8=1 python tools/selftest.py`: 42/42 PASS
+- App 회귀 테스트: deferred close resolve 전 DHT11 선택·상하단 잠금 유지, resolve 후 HC-SR04 선택 적용 PASS
+- local production browser: DHT11 초기 pressed, HC-SR04·LDR 선택 후 연결 CTA와 0.5초 기본 간격 변경 PASS
+- 데스크톱 및 390px 설정: 문서 가로 overflow 0; 좁은 화면 센서 버튼 높이 44px
+- Vite 오류 overlay 0
 
 ## PASS 조건과 판정
 
 | 조건 | 결과 | 증거 등급 |
 |---|---|---|
-| DHT 온도·습도 그래프 모두 패널 내부 표시 | PASS | V2 |
-| HC/LDR형 단일 raw 그래프가 전체 폭 사용 | PASS | V2 |
-| 1·2·4 시리즈 DOM·layout count·유한 SVG 좌표 | PASS | V2 |
-| 데스크톱·모바일 패널 겹침과 가로 overflow 0 | PASS | V2 |
-| 기존 통신·시간·CSV·서버·펌웨어 회귀 | PASS | V2 |
-| production build와 오류 overlay 없음 | PASS | V2 |
+| Vercel에서 보고된 TS2322 빌드 오류 해소 | PASS | V2 |
+| 전체 자동 테스트와 production build 회귀 없음 | PASS | V2 |
+| package gate 0/0 및 package selftest 42/42 | PASS | V2 |
+| DHT11·HC-SR04·LDR 선택과 pressed 상태 | PASS | V2 |
+| HC-SR04·LDR 연결 CTA와 0.5초 기본 간격 갱신 | PASS | V2 |
+| ready 센서 전환에서 포트 종료 완료 후 새 선택 적용 | PASS | V2 |
+| 데스크톱·390px 설정에서 가로 overflow 0 | PASS | V2 |
 
 ## Negative / Fail-closed 검증
 
-실험 정의에 derived나 데이터 없는 raw 지표가 있어도 실제 렌더 시리즈 수만 레이아웃에 반영한다. 그래프가 늘어도 패널을 고정 높이로 잘라내거나 데이터 포인트를 숨기지 않는다. SVG 좌표는 viewBox 범위 안의 유한 수이며 source·timestamp reset 계약은 기존 테스트로 유지한다.
+타입 수리는 비동기 종료 순서 테스트를 삭제하거나 즉시 resolve하도록 약화하지 않았다. 센서 전환 중 선택 잠금, 측정 데이터 생성, 그래프 series, CSV buffer와 펌웨어 계약은 기존 회귀 테스트에서 계속 통과했다.
 
 ## FAIL ROUTE 발화 기록
 
 | 판정 | 목적지 | 사유 |
 |---|---|---|
-| REPAIR | BUILD | revision 7 레이아웃 변경 뒤 전체 VERIFY를 새 증거로 재실행 |
+| REPAIR | BUILD | revision 9 테스트 타입 수리 뒤 BUILD 하류 VERIFY를 새 증거로 재실행 |
 
 ## 한계
 
-브라우저 검증은 local production preview와 demo 데이터였다. 실제 Vercel Web Serial 세션 중 그래프 개수가 변하는 장시간 관찰은 V3 미실행이다.
+브라우저 검증은 local production preview이며 실제 Web Serial 포트를 열지 않았다. Vercel 배포 체크와 실제 HC-SR04·LDR 연결·계측은 USER CHECK 대상이다.
